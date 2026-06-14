@@ -41,6 +41,20 @@ const connectMySQL = async () => {
     console.log('✅ MySQL connected successfully');
     await sequelize.sync({ alter: true });
     console.log('✅ MySQL models synchronized');
+
+    // Seed roles
+    const { Role } = require('../models/mysql/index');
+    const defaultRoles = [
+      { name: 'admin', description: 'Full access to all project resources' },
+      { name: 'project_manager', description: 'Can manage sprints, tasks, and team' },
+      { name: 'developer', description: 'Can write code, complete tasks' },
+      { name: 'tester', description: 'Can review code, run tests, report bugs' },
+      { name: 'viewer', description: 'Read-only access to project' },
+    ];
+    for (const role of defaultRoles) {
+      await Role.findOrCreate({ where: { name: role.name }, defaults: role });
+    }
+    console.log('✅ Roles seeded');
   } catch (error) {
     console.warn('⚠️  MySQL not available (start XAMPP to enable):', error.message.split('\n')[0]);
     console.warn('    The app will run with MongoDB only. Auth requires MySQL.');

@@ -23,6 +23,9 @@ router.get('/me', authenticate, authController.getMe);
 router.post('/forgot-password', authController.forgotPassword);
 router.post('/reset-password', authController.resetPassword);
 
+router.get('/sessions', authenticate, authController.getSessions);
+router.delete('/sessions/:id', authenticate, authController.revokeSession);
+
 // Google OAuth (mocked - will be wired up with Passport once OAuth app is configured)
 router.get('/google', (req, res) => {
   res.json({ message: 'Google OAuth - configure GOOGLE_CLIENT_ID to enable' });

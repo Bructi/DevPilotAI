@@ -2,6 +2,7 @@ const Task = require('../models/mongo/Task.model');
 const Project = require('../models/mongo/Project.model');
 const { ActivityLog, Notification } = require('../models/mongo/index');
 const mongoose = require('mongoose');
+const { sendNotificationToUser } = require('../sockets/socketHandlers');
 
 // ─── Get Tasks for Project ────────────────────────────────────────────────────
 exports.getTasks = async (req, res) => {
@@ -71,6 +72,10 @@ exports.createTask = async (req, res) => {
         from_user_id: req.user.userId,
       }));
       await Notification.insertMany(notifs);
+      const io = req.app.get('io');
+      notifs.forEach(notif => {
+        sendNotificationToUser(io, notif.user_id, notif);
+      });
     }
 
     await ActivityLog.create({

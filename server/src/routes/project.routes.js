@@ -12,6 +12,7 @@ router.get('/:id', projectController.getProject);
 router.put('/:id', projectController.updateProject);
 router.delete('/:id', projectController.deleteProject);
 router.get('/:id/stats', projectController.getProjectStats);
+router.get('/:id/activity', projectController.getActivity);
 router.post('/:id/members', projectController.addMember);
 router.get('/:id/members', projectController.getProjectMembers);
 router.delete('/:id/members/:userId', projectController.removeMember);

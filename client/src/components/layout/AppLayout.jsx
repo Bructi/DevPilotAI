@@ -2,16 +2,33 @@ import React, { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
-import { useAuthStore, useUIStore } from '../../store';
-import { connectSocket } from '../../services/socket';
+import { useAuthStore, useUIStore, useNotificationStore } from '../../store';
+import { connectSocket, getSocket } from '../../services/socket';
+import { useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 
 export default function AppLayout() {
   const { user } = useAuthStore();
   const { sidebarCollapsed, sidebarOpen, setSidebarOpen } = useUIStore();
+  const { addNotification } = useNotificationStore();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (user?.id) connectSocket(user.id, user.name);
-  }, [user]);
+    if (user?.id) {
+      connectSocket(user.id, user.name);
+      const socket = getSocket();
+      if (socket) {
+        socket.on('notification:new', (notif) => {
+          toast.success(notif.title || 'New notification', { icon: '🔔' });
+          addNotification?.(notif);
+          queryClient.invalidateQueries(['notifications']);
+        });
+      }
+      return () => {
+        if (socket) socket.off('notification:new');
+      };
+    }
+  }, [user, queryClient, addNotification]);
 
   return (
     <div className="app-layout">

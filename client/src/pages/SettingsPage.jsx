@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, Lock, Bell, Moon, Plug, Save, Loader2, Unlink, ExternalLink } from 'lucide-react';
+import { User, Lock, Bell, Moon, Plug, Save, Loader2, Unlink, ExternalLink, Monitor, LogOut } from 'lucide-react';
 
 // GitHub icon SVG (not in this version of lucide-react)
 const GithubIcon = ({ size = 16, style = {} }) => (
@@ -8,7 +8,7 @@ const GithubIcon = ({ size = 16, style = {} }) => (
     <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
   </svg>
 );
-import { userAPI } from '../services/api';
+import { userAPI, authAPI } from '../services/api';
 import { useAuthStore, useUIStore } from '../store';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
@@ -23,6 +23,7 @@ const JiraIcon = ({ size = 16 }) => (
 const sections = [
   { id: 'profile', icon: User, label: 'Profile' },
   { id: 'security', icon: Lock, label: 'Security' },
+  { id: 'sessions', icon: Monitor, label: 'Active Sessions' },
   { id: 'notifications', icon: Bell, label: 'Notifications' },
   { id: 'appearance', icon: Moon, label: 'Appearance' },
   { id: 'integrations', icon: Plug, label: 'Integrations' },
@@ -37,6 +38,56 @@ function Toggle({ checked, onChange }) {
         <span style={{ position: 'absolute', height: 18, width: 18, left: checked ? 22 : 3, bottom: 2, background: 'white', borderRadius: '50%', transition: '0.3s', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }} />
       </span>
     </label>
+  );
+}
+
+function SessionsSettings({ cardStyle }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['sessions'],
+    queryFn: () => authAPI.getSessions().then(res => res.data)
+  });
+
+  const revoke = async (id) => {
+    try {
+      await authAPI.revokeSession(id);
+      toast.success('Session revoked');
+      queryClient.invalidateQueries(['sessions']);
+    } catch (err) {
+      toast.error('Failed to revoke session');
+    }
+  };
+
+  if (isLoading) return <div style={{ padding: 20 }}><Loader2 className="animate-spin" /> Loading sessions...</div>;
+
+  return (
+    <div>
+      <h2 style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1.1rem', marginBottom: 20 }}>Active Sessions</h2>
+      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>Review devices that are currently logged into your account.</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {data?.sessions?.map(s => (
+          <div key={s.id} style={{ ...cardStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1' }}>
+                <Monitor size={20} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{s.device_info || 'Unknown Device'}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                  IP: {s.ip_address} • Started {new Date(s.created_at).toLocaleDateString()}
+                </div>
+              </div>
+            </div>
+            <button onClick={() => revoke(s.id)} className="btn btn-ghost btn-sm" style={{ color: '#ef4444' }} title="Revoke Session">
+              <LogOut size={16} />
+            </button>
+          </div>
+        ))}
+        {data?.sessions?.length === 0 && (
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textAlign: 'center', padding: '20px 0' }}>No active sessions found.</div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -171,8 +222,8 @@ export default function SettingsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <div style={{ position: 'relative', width: 64, height: 64, flexShrink: 0 }}>
                     <div style={{ width: 64, height: 64, borderRadius: '50%', overflow: 'hidden', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', color: 'white', fontWeight: 700 }}>
-                      {form.avatar
-                        ? <img src={form.avatar} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      {form.avatar && form.avatar.length > 500
+                        ? <img src={form.avatar} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(e) => e.target.style.display = 'none'} />
                         : (user?.name?.[0]?.toUpperCase() || 'U')}
                     </div>
                   </div>
@@ -248,6 +299,11 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* ── Sessions ── */}
+          {activeSection === 'sessions' && (
+            <SessionsSettings cardStyle={cardStyle} />
           )}
 
           {/* ── Notifications ── */}

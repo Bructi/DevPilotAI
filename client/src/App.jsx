@@ -14,6 +14,7 @@ import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
+import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import AuthCallback from './pages/auth/AuthCallback';
 
 import DashboardPage from './pages/DashboardPage';
@@ -23,6 +24,7 @@ import KanbanBoardPage from './pages/projects/KanbanBoardPage';
 import SprintPlannerPage from './pages/projects/SprintPlannerPage';
 import { TeamPage, AnalyticsPage, AIAssistantPage, DocumentsPage } from './pages/projects/ProjectPages';
 
+import TeamsPage from './pages/TeamsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import SettingsPage from './pages/SettingsPage';
 import ProfilePage from './pages/ProfilePage';
@@ -111,11 +113,13 @@ export default function App() {
           <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
 
           {/* Protected App Routes */}
           <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
             <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="teams" element={<TeamsPage />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:projectId" element={<ProjectLayout />}>
               <Route index element={<ProjectDetailPage />} />

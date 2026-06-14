@@ -1,9 +1,9 @@
-﻿// Fully connected project pages with real AI backend integration
+// Fully connected project pages with real AI backend integration
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Bot, Sparkles, Send, Loader2, FileText, Plus, Users, UserPlus,
   Code2, Zap, ScrollText, RefreshCw, Copy, Check, ChevronDown,
-  AlertTriangle, BarChart3, TrendingUp, Target, Clock, Activity,
+  AlertTriangle, BarChart3, TrendingUp, Target, Clock, Activity, Trash2,
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import {
@@ -11,7 +11,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 import toast from 'react-hot-toast';
-import { aiAPI, analyticsAPI, userAPI, taskAPI, sprintAPI, projectAPI } from '../../services/api';
+import { aiAPI, analyticsAPI, userAPI, taskAPI, sprintAPI, projectAPI, teamAPI } from '../../services/api';
 import { useProjectStore } from '../../store';
 
 import ReactMarkdown from 'react-markdown';
@@ -43,8 +43,44 @@ export function AIAssistantPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(null);
+  const [conversationId, setConversationId] = useState(null);
+  const [historyList, setHistoryList] = useState([]);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+
+  useEffect(() => {
+    if (projectId) {
+      aiAPI.getConversations(projectId).then(res => setHistoryList(res.data.conversations || [])).catch(() => {});
+    }
+  }, [projectId]);
+
+  const loadConversation = (conv) => {
+    setConversationId(conv._id);
+    setMessages([
+      {
+        role: 'assistant',
+        content: `Loaded conversation: **${conv.title}**`,
+        timestamp: new Date(conv.createdAt),
+      },
+      ...conv.messages.map(m => ({
+        role: m.role,
+        content: m.content,
+        timestamp: new Date(m.timestamp),
+        model: m.metadata?.model
+      }))
+    ]);
+  };
+
+  const startNewChat = () => {
+    setConversationId(null);
+    setMessages([
+      {
+        role: 'assistant',
+        content: `Hi! I'm your **DevPilot AI** assistant. 🚀\n\nWhat would you like to work on today?`,
+        timestamp: new Date(),
+      },
+    ]);
+  };
 
   // Sprint planning state
   const [sprintForm, setSprintForm] = useState({
@@ -108,7 +144,12 @@ export function AIAssistantPage() {
         ? `Project: ${currentProject.name}. Description: ${currentProject.description || 'N/A'}. Status: ${currentProject.status || 'active'}.`
         : null;
 
-      const res = await aiAPI.chat(history, projectContext, 'general');
+      const res = await aiAPI.chat(history, projectContext, 'general', projectId, conversationId);
+      
+      if (res.data.conversation_id) {
+        setConversationId(res.data.conversation_id);
+      }
+
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: res.data.content,
@@ -141,6 +182,7 @@ export function AIAssistantPage() {
       const backlog_items = sprintForm.backlog_items.split('\n').filter(l => l.trim());
       const res = await aiAPI.planSprint({
         project_name: sprintForm.project_name,
+        project_id: projectId,
         backlog_items,
         team_size: parseInt(sprintForm.team_size),
         sprint_duration_weeks: parseInt(sprintForm.sprint_duration_weeks),
@@ -163,7 +205,8 @@ export function AIAssistantPage() {
     setDocLoading(true);
     setDocResult('');
     try {
-      const res = await aiAPI.generateDocument(docForm);
+      const payload = { ...docForm, project_id: projectId };
+      const res = await aiAPI.generateDocument(payload);
       setDocResult(res.data.document);
       toast.success(`${docForm.doc_type.toUpperCase()} generated!`);
     } catch (err) {
@@ -260,8 +303,11 @@ export function AIAssistantPage() {
 
       {/* ─── CHAT TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'chat' && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 20, overflow: 'hidden', minHeight: 0 }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="flex-stack" style={{ flex: 1, display: 'flex', gap: 20, minHeight: 0 }}>
+          
+          {/* Main Chat Area */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 20, overflow: 'hidden', minHeight: 0 }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
             {messages.map((msg, i) => (
               <div key={i} style={{ display: 'flex', gap: 12, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
                 {msg.role === 'assistant' && (
@@ -280,7 +326,7 @@ export function AIAssistantPage() {
                     {msg.role === 'user' ? <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div> : <MdContent content={msg.content} />}
                   </div>
                   {msg.role === 'assistant' && !msg.isError && (
-                    <button onClick={() => handleCopy(msg.content, i)} style={{ ...btnGhost, position: 'absolute', top: 8, right: -44, opacity: 0.7 }}>
+                    <button onClick={() => handleCopy(msg.content, i)} style={{ ...btnGhost, position: 'absolute', top: 8, right: -44, opacity: 0.7 }} title="Copy Markdown">
                       {copied === i ? <Check size={12} /> : <Copy size={12} />}
                     </button>
                   )}
@@ -305,33 +351,62 @@ export function AIAssistantPage() {
           </div>
 
           {/* Suggestions */}
-          <div style={{ padding: '8px 16px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
               {suggestions.map(s => (
                 <button key={s} onClick={() => setInput(s)}
-                  style={{ fontSize: '0.72rem', padding: '4px 10px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 99, color: '#818cf8', cursor: 'pointer' }}>
+                  style={{ fontSize: '0.75rem', padding: '6px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 99, color: '#818cf8', cursor: 'pointer' }}>
                   {s}
                 </button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
               <textarea
                 ref={textareaRef}
                 value={input}
-                onChange={e => setInput(e.target.value)}
+                onChange={e => {
+                  setInput(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+                }}
                 placeholder="Ask anything about your project..."
-                rows={2}
-                style={{ ...inputStyle, resize: 'none', flex: 1 }}
+                rows={1}
+                style={{ ...inputStyle, resize: 'none', flex: 1, minHeight: '50px', maxHeight: '150px', overflowY: 'auto', padding: '14px' }}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
               />
               <button onClick={sendMessage} disabled={!input.trim() || loading}
-                style={{ ...btnPrimary, minWidth: 48, opacity: (!input.trim() || loading) ? 0.5 : 1 }}>
-                {loading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                style={{ ...btnPrimary, width: 50, height: 50, borderRadius: 12, padding: 0, display: 'flex', justifyContent: 'center', opacity: (!input.trim() || loading) ? 0.5 : 1 }}>
+                {loading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
               </button>
             </div>
-            <p style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 6 }}>Press Enter to send · Shift+Enter for new line</p>
+            <p style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 8, textAlign: 'center' }}>Press Enter to send · Shift+Enter for new line</p>
           </div>
         </div>
+
+        {/* Chat History Sidebar */}
+        <div className="hidden-mobile" style={{ width: 280, display: 'flex', flexDirection: 'column', gap: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 20, overflowY: 'auto' }}>
+          <button onClick={startNewChat} style={{ ...btnPrimary, width: '100%', justifyContent: 'center' }}>
+            <Plus size={16} /> New Chat
+          </button>
+          <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)', marginTop: 8 }}>Recent Chats</h3>
+          {historyList.length === 0 ? (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: 20 }}>No previous chats</div>
+          ) : (
+            historyList.map(conv => (
+              <div key={conv._id} onClick={() => loadConversation(conv)}
+                style={{
+                  padding: '12px', background: conversationId === conv._id ? 'var(--bg-glass-hover)' : 'transparent',
+                  border: '1px solid var(--border-color)', borderRadius: 12, cursor: 'pointer',
+                  transition: 'background 0.2s',
+                }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{conv.title}</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>{new Date(conv.updatedAt).toLocaleDateString()}</div>
+              </div>
+            ))
+          )}
+        </div>
+        
+      </div>
       )}
 
       {/* ─── SPRINT PLANNER TAB ────────────────────────────────────────────── */}
@@ -374,7 +449,7 @@ export function AIAssistantPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <h3 style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem' }}>Sprint Plan</h3>
                 <button onClick={() => handleCopy(sprintResult, 'sprint')} style={btnGhost}>
-                  {copied === 'sprint' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                  {copied === 'sprint' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy Markdown</>}
                 </button>
               </div>
               <MdContent content={sprintResult} />
@@ -470,7 +545,7 @@ export function AIAssistantPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <h3 style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem' }}>Code Review Results</h3>
                 <button onClick={() => handleCopy(codeResult, 'code')} style={btnGhost}>
-                  {copied === 'code' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                  {copied === 'code' ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy Markdown</>}
                 </button>
               </div>
               <MdContent content={codeResult} />
@@ -655,9 +730,13 @@ export function AnalyticsPage() {
 export function TeamPage() {
   const { projectId } = useParams();
   const [showInvite, setShowInvite] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('developer');
+  const [importRole, setImportRole] = useState('developer');
   const [members, setMembers] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [selectedTeam, setSelectedTeam] = useState('');
   
   const fetchMembers = async () => {
     try {
@@ -668,8 +747,21 @@ export function TeamPage() {
     }
   };
 
+  const fetchTeams = async () => {
+    try {
+      const res = await teamAPI.getAll();
+      setTeams(res.data.teams || []);
+      if (res.data.teams?.length > 0) {
+        setSelectedTeam(res.data.teams[0].id);
+      }
+    } catch(err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     fetchMembers();
+    fetchTeams();
   }, [projectId]);
 
   const handleInvite = async () => {
@@ -694,6 +786,29 @@ export function TeamPage() {
     }
   };
 
+  const handleImportTeam = async () => {
+    if (!selectedTeam) return toast.error('Please select a team');
+    try {
+      const res = await teamAPI.getMembers(selectedTeam);
+      const teamMembers = res.data.members || [];
+      if (teamMembers.length === 0) return toast.error('Selected team has no members');
+      
+      for (const tm of teamMembers) {
+        try {
+          await projectAPI.addMember(projectId, { user_id: tm.id, role: importRole });
+        } catch(e) {
+          // ignore already exists
+        }
+      }
+      
+      toast.success(`Imported team members as ${importRole.replace('_', ' ')}!`);
+      setShowImport(false);
+      fetchMembers();
+    } catch(err) {
+      toast.error('Failed to import team');
+    }
+  };
+
   const roleColors = { owner: '#6366f1', admin: '#8b5cf6', developer: '#10b981', tester: '#f59e0b', viewer: '#64748b', project_manager: '#0ea5e9' };
 
   return (
@@ -703,10 +818,16 @@ export function TeamPage() {
           <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)' }}>Team</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: 4 }}>Manage project members and their roles</p>
         </div>
-        <button onClick={() => setShowInvite(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', borderRadius: 10, color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>
-          <UserPlus size={16} /> Invite Member
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => setShowImport(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 10, color: '#818cf8', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>
+            <Users size={16} /> Import Team
+          </button>
+          <button onClick={() => setShowInvite(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', borderRadius: 10, color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>
+            <UserPlus size={16} /> Invite Member
+          </button>
+        </div>
       </div>
 
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 18, overflow: 'hidden' }}>
@@ -721,7 +842,7 @@ export function TeamPage() {
               onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
               <div style={{ width: 40, height: 40, borderRadius: 12, background: color + '22', border: `2px solid ${color}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.85rem', color: color }}>
-                {m.avatar ? <img src={m.avatar} alt={m.name} style={{ width: '100%', height: '100%', borderRadius: 10, objectFit: 'cover' }} /> : initials}
+                {m.avatar && m.avatar.length > 500 ? <img src={m.avatar} alt={m.name} style={{ width: '100%', height: '100%', borderRadius: 10, objectFit: 'cover' }} onError={(e) => e.target.style.display = 'none'} /> : initials}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{m.name}</div>
@@ -735,6 +856,52 @@ export function TeamPage() {
           );
         })}
       </div>
+
+      {showImport && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 32, width: 420 }}>
+            <h3 style={{ fontWeight: 800, color: 'var(--text-primary)', marginBottom: 20 }}>Import Global Team</h3>
+            
+            {teams.length === 0 ? (
+              <div style={{ marginBottom: 20 }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>You don't have any global teams yet.</p>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: 6 }}>Select Team</label>
+                  <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}
+                    style={{ width: '100%', background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '10px 14px', color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none' }}>
+                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: 6 }}>Import As Role</label>
+                  <select value={importRole} onChange={e => setImportRole(e.target.value)}
+                    style={{ width: '100%', background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '10px 14px', color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none' }}>
+                    <option value="developer">Developer</option>
+                    <option value="tester">Tester</option>
+                    <option value="viewer">Viewer</option>
+                    <option value="project_manager">Project Manager</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </>
+            )}
+            
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={handleImportTeam} disabled={teams.length === 0}
+                style={{ flex: 1, padding: '10px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', borderRadius: 10, color: 'white', fontWeight: 600, cursor: teams.length === 0 ? 'not-allowed' : 'pointer', opacity: teams.length === 0 ? 0.5 : 1 }}>
+                Import
+              </button>
+              <button onClick={() => setShowImport(false)}
+                style={{ padding: '10px 20px', background: 'var(--bg-glass-hover)', border: '1px solid var(--border-color)', borderRadius: 10, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showInvite && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -791,17 +958,46 @@ export function DocumentsPage() {
   const generateDoc = async (doc_type) => {
     setGenerating(doc_type);
     try {
-      const res = await aiAPI.generateDocument({
+      const payload = {
         project_name: currentProject?.name || 'My Project',
         project_description: currentProject?.description || 'A software development project',
         doc_type,
-      });
-      setGeneratedDoc({ content: res.data.document, type: doc_type, title: res.data.title });
+        project_id: projectId
+      };
+      const res = await aiAPI.generateDocument(payload);
+      setGeneratedDoc({ content: res.data.document, type: doc_type, title: res.data.title || payload.doc_type });
       toast.success('Document generated successfully!');
+      fetchDocuments();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to generate document. Is the AI engine running?');
     } finally {
       setGenerating(null);
+    }
+  };
+
+  const [savedDocs, setSavedDocs] = useState([]);
+  
+  const fetchDocuments = useCallback(async () => {
+    try {
+      const res = await aiAPI.getDocuments(projectId);
+      setSavedDocs(res.data.documents || []);
+    } catch (err) {
+      // Ignore
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this document?')) return;
+    try {
+      await aiAPI.deleteDocument(id);
+      toast.success('Document deleted');
+      fetchDocuments();
+    } catch (err) {
+      toast.error('Failed to delete document');
     }
   };
 
@@ -839,27 +1035,59 @@ export function DocumentsPage() {
           `}</style>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
-          {docTypes.map(doc => (
-            <div key={doc.type}
-              style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 24, cursor: generating === doc.type ? 'wait' : 'pointer', transition: 'all 0.2s', position: 'relative', overflow: 'hidden' }}
-              onMouseEnter={e => { e.currentTarget.style.background = doc.color + '10'; e.currentTarget.style.borderColor = doc.color + '44'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; }}
-              onClick={() => generating === null && generateDoc(doc.type)}>
-              <div style={{ fontSize: '2rem', marginBottom: 12 }}>{doc.icon}</div>
-              <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem', marginBottom: 4 }}>{doc.label}</div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 16 }}>{doc.desc}</div>
-              {generating === doc.type ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: doc.color }}>
-                  <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Generating...
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+          <div>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16 }}>Create New Document</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
+              {docTypes.map(doc => (
+                <div key={doc.type}
+                  style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 24, cursor: generating === doc.type ? 'wait' : 'pointer', transition: 'all 0.2s', position: 'relative', overflow: 'hidden' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = doc.color + '10'; e.currentTarget.style.borderColor = doc.color + '44'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; }}
+                  onClick={() => generating === null && generateDoc(doc.type)}>
+                  <div style={{ fontSize: '2rem', marginBottom: 12 }}>{doc.icon}</div>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem', marginBottom: 4 }}>{doc.label}</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 16 }}>{doc.desc}</div>
+                  {generating === doc.type ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: doc.color }}>
+                      <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Generating...
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: doc.color, fontWeight: 600 }}>
+                      <Sparkles size={14} /> Generate with AI
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: doc.color, fontWeight: 600 }}>
-                  <Sparkles size={14} /> Generate with AI
-                </div>
-              )}
+              ))}
             </div>
-          ))}
+          </div>
+          
+          {savedDocs.length > 0 && (
+            <div>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16 }}>Saved Documents</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+                {savedDocs.map(doc => {
+                  const typeInfo = docTypes.find(d => d.type === doc.type) || docTypes[0];
+                  return (
+                    <div key={doc._id} style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 20 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                        <div style={{ fontSize: '1.5rem' }}>{typeInfo.icon}</div>
+                        <button onClick={() => handleDelete(doc._id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 4, borderRadius: 6 }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.title}</h3>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 16 }}>{new Date(doc.createdAt).toLocaleDateString()}</div>
+                      <button onClick={() => setGeneratedDoc({ content: doc.content, type: doc.type, title: doc.title })}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: '#818cf8', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                        <FileText size={14} /> View Document
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

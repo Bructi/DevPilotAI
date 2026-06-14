@@ -70,6 +70,17 @@ export const authAPI = {
   logout: () => api.post('/auth/logout'),
   getMe: () => api.get('/auth/me'),
   refresh: () => api.post('/auth/refresh'),
+  forgotPassword: (data) => api.post('/auth/forgot-password', data),
+  resetPassword: (data) => api.post('/auth/reset-password', data),
+  getSessions: () => api.get('/auth/sessions'),
+  revokeSession: (id) => api.delete(`/auth/sessions/${id}`),
+};
+
+export const teamAPI = {
+  getAll: () => api.get('/teams'),
+  create: (data) => api.post('/teams', data),
+  getMembers: (teamId) => api.get(`/teams/${teamId}/members`),
+  addMember: (teamId, data) => api.post(`/teams/${teamId}/members`, data),
 };
 
 export const projectAPI = {
@@ -82,6 +93,7 @@ export const projectAPI = {
   getMembers: (id) => api.get(`/projects/${id}/members`),
   addMember: (id, data) => api.post(`/projects/${id}/members`, data),
   removeMember: (id, userId) => api.delete(`/projects/${id}/members/${userId}`),
+  getActivity: (id) => api.get(`/projects/${id}/activity`),
 };
 
 export const taskAPI = {
@@ -133,10 +145,13 @@ export const analyticsAPI = {
 };
 
 export const aiAPI = {
-  chat: (messages, project_context = null, context_type = 'general') =>
-    api.post('/ai/chat', { messages, project_context, context_type }),
+  chat: (messages, project_context = null, context_type = 'general', project_id = null, conversation_id = null) =>
+    api.post('/ai/chat', { messages, project_context, context_type, project_id, conversation_id }),
+  getConversations: (projectId) => api.get(`/ai/conversations/${projectId}`),
   planSprint: (data) => api.post('/ai/sprint/plan', data),
   generateDocument: (data) => api.post('/ai/documents/generate', data),
+  getDocuments: (projectId) => api.get(`/ai/documents/${projectId}`),
+  deleteDocument: (id) => api.delete(`/ai/documents/${id}`),
   breakdownTask: (data) => api.post('/ai/tasks/breakdown', data),
   reviewCode: (data) => api.post('/ai/code/review', data),
   health: () => api.get('/ai/health'),

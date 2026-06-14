@@ -40,11 +40,45 @@ import time
 import os
 import shutil
 
-print("Installing Ollama & pyngrok...")
-os.system("wget -q https://ollama.com/install.sh")
-os.system("sh install.sh")
+# =================================================================
+# 1. MOUNT GOOGLE DRIVE TO SAVE THE MODEL PERMANENTLY
+# =================================================================
+try:
+    from google.colab import drive
+    print("Mounting Google Drive to persist the model...")
+    drive.mount('/content/drive')
+    
+    # Create a folder in your Drive to store the model
+    models_dir = '/content/drive/MyDrive/ollama_models'
+    os.makedirs(models_dir, exist_ok=True)
+    
+    # Tell Ollama to save and load models from Google Drive!
+    os.environ["OLLAMA_MODELS"] = models_dir
+    print(f"Ollama models will be saved to/loaded from: {models_dir}")
+except ImportError:
+    print("Not running in Google Colab. Skipping Drive mount.")
+
+print("\nInstalling Ollama & pyngrok...")
+
+# Install zstd, a dependency for Ollama installation
+subprocess.run(["sudo", "apt-get", "install", "-y", "zstd"], capture_output=True, text=True)
+
+# Install Ollama
+install_command = "curl -fsSL https://ollama.com/install.sh | sh"
+install_result = subprocess.run(install_command, shell=True, capture_output=True, text=True)
+if install_result.returncode != 0:
+    raise RuntimeError("Ollama installation failed.")
+
 time.sleep(2)
+
+# Install pyngrok
 os.system("pip install -q pyngrok")
+
+print("\n\n========================================================")
+print("🚨 NGROK REQUIRES A FREE AUTHTOKEN")
+print("1. Go to https://dashboard.ngrok.com/tunnels/authtokens")
+print("2. Copy the token and paste it in the box below!")
+print("========================================================\n")
 
 ngrok_token = input("Paste your Ngrok Authtoken here: ")
 
@@ -52,32 +86,62 @@ from pyngrok import ngrok, conf
 conf.get_default().auth_token = ngrok_token.strip()
 
 ollama_path = shutil.which("ollama") or "/usr/local/bin/ollama"
-if not os.path.exists(ollama_path) and os.path.exists("/usr/bin/ollama"):
-    ollama_path = "/usr/bin/ollama"
 
-print(f"\nStarting Ollama server from {ollama_path}...")
+print(f"\nStarting Ollama server...")
 global ollama_process
 env = os.environ.copy()
 env["OLLAMA_ORIGINS"] = "*"
-ollama_process = subprocess.Popen([ollama_path, "serve"], env=env)
-time.sleep(5)
 
-print("Downloading Llama3:8b model (this takes ~1-2 mins)...")
-os.system(f"{ollama_path} pull llama3:8b")
+try:
+    # Start the background process
+    ollama_process = subprocess.Popen([ollama_path, "serve"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    time.sleep(5)
+    if ollama_process.poll() is not None:
+        raise RuntimeError("Ollama server failed to start.")
+    print("Ollama server started successfully.")
+except Exception as e:
+    raise
+
+# =================================================================
+# 2. PULL MODEL (WILL BE INSTANT IF ALREADY IN GOOGLE DRIVE)
+# =================================================================
+print("Checking for Llama3:8b model (Will download ONLY if it's not in your Google Drive)...")
+pull_command = f"{ollama_path} pull llama3:8b"
+pull_result = subprocess.run(pull_command, shell=True, capture_output=True, text=True)
+if pull_result.returncode != 0:
+    raise RuntimeError(f"Llama3:8b model pull failed: {pull_result.stderr}")
+else:
+    print("Llama3:8b model is ready!")
 
 print("Exposing port 11434 via Ngrok...")
 options = {"host_header": "localhost", "bind_tls": True}
-public_url = ngrok.connect(11434, **options).public_url
 
-print("\n\n✅ SUCCESS! YOUR PUBLIC AI URL IS:\n")
+max_retries = 5
+for i in range(max_retries):
+    try:
+        public_url = ngrok.connect(11434, **options).public_url
+        print("Ngrok tunnel established.")
+        break
+    except Exception as e:
+        print(f"Attempt {i+1}/{max_retries}: Ngrok connection failed: {e}")
+        time.sleep(5)
+
+print("\n\n========================================================")
+print("✅ SUCCESS! YOUR PUBLIC AI URL IS:\n")
 print(f"{public_url}")
+print("\nCopy the URL above and paste it into your .env file!")
+print("========================================================\n")
 
 try:
     while True:
         time.sleep(3600)
 except KeyboardInterrupt:
-    ollama_process.kill()
-    ngrok.kill()
+    print("Stopping server...")
+    if 'ollama_process' in globals() and ollama_process.poll() is None:
+        ollama_process.kill()
+    if 'ngrok' in globals() and ngrok.get_tunnels():
+        ngrok.kill()
+    print("Server stopped.")
 ```
 
 ### 3. Environment Variables
@@ -116,12 +180,12 @@ cd client && npm run dev
 
 ### URLs
 
-| Service       | URL                                 |
-| ------------- | ----------------------------------- |
-| Frontend      | http://localhost:5173               |
-| Backend API   | http://localhost:5000/api           |
-| AI Engine     | http://localhost:8000               |
-| Server Health | http://localhost:5000/api/health    |
+| Service       | URL                              |
+| ------------- | -------------------------------- |
+| Frontend      | http://localhost:5173            |
+| Backend API   | http://localhost:5000/api        |
+| AI Engine     | http://localhost:8000            |
+| Server Health | http://localhost:5000/api/health |
 
 ---
 

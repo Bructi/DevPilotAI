@@ -173,8 +173,8 @@ export default function ProfilePage() {
               fontSize: '2.2rem', fontWeight: 800, color: 'white',
               overflow: 'hidden', position: 'relative',
             }}>
-              {displayAvatar
-                ? <img src={displayAvatar} alt={user?.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+              {displayAvatar && displayAvatar.length > 500
+                ? <img src={displayAvatar} alt={user?.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} onError={(e) => e.target.style.display = 'none'} />
                 : (user?.name?.[0]?.toUpperCase() || 'U')}
 
               {/* Hover overlay for upload */}

@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
@@ -6,6 +6,7 @@ import {
   ArrowLeft, Kanban, Zap, Users, BarChart3, Bot, FileText,
   Calendar, GitBranch, Settings, TrendingUp, Clock, Target,
   CheckCircle2, AlertCircle, Edit, Trash2, Loader2, Globe,
+  Activity,
 } from 'lucide-react';
 import { projectAPI, taskAPI } from '../../services/api';
 import { format } from 'date-fns';
@@ -37,6 +38,11 @@ export default function ProjectDetailPage() {
   const { data: stats } = useQuery({
     queryKey: ['project-stats', projectId],
     queryFn: () => projectAPI.getStats(projectId).then(r => r.data.stats),
+  });
+
+  const { data: activityLogs } = useQuery({
+    queryKey: ['project-activity', projectId],
+    queryFn: () => projectAPI.getActivity(projectId).then(r => r.data.logs),
   });
 
   const deleteMutation = useMutation({
@@ -241,6 +247,35 @@ export default function ProjectDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Activity Feed */}
+      <div style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 18, padding: 24 }}>
+        <h3 style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Activity size={18} style={{ color: '#6366f1' }} /> Recent Activity
+        </h3>
+        {activityLogs && activityLogs.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 400, overflowY: 'auto', paddingRight: 8 }}>
+            {activityLogs.map((log) => (
+              <div key={log._id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Activity size={14} style={{ color: '#818cf8' }} />
+                </div>
+                <div style={{ flex: 1, paddingBottom: 12, borderBottom: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                    {log.action}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    {format(new Date(log.createdAt), 'MMM d, yyyy h:mm a')}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No activity recorded yet.</p>
+        )}
+      </div>
+
       {/* Edit Modal */}
       {showEditModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>

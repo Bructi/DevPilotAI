@@ -2,6 +2,7 @@ const Project = require('../models/mongo/Project.model');
 const Task = require('../models/mongo/Task.model');
 const { ActivityLog } = require('../models/mongo/index');
 const User = require('../models/mysql/User.model');
+const { UserRole, Role } = require('../models/mysql/index');
 const { sendEmail } = require('../utils/email.service');
 
 // ─── Get All Projects (for user) ─────────────────────────────────────────────
@@ -60,6 +61,16 @@ exports.createProject = async (req, res) => {
       entity_id: project._id.toString(),
       entity_name: project.name,
     });
+
+    // MySQL UserRole synchronization for owner
+    const mysqlRole = await Role.findOne({ where: { name: 'admin' } });
+    if (mysqlRole) {
+      await UserRole.create({
+        user_id: userId,
+        project_id: project._id.toString(),
+        role_id: mysqlRole.id,
+      });
+    }
 
     // Emit socket event
     const io = req.app.get('io');
@@ -126,6 +137,16 @@ exports.addMember = async (req, res) => {
     project.members.push({ user_id, role });
     await project.save();
 
+    // MySQL UserRole synchronization
+    const mysqlRole = await Role.findOne({ where: { name: role } });
+    if (mysqlRole) {
+      await UserRole.create({
+        user_id: user_id,
+        project_id: project._id.toString(),
+        role_id: mysqlRole.id,
+      });
+    }
+
     // Fetch user to send email
     const user = await User.findByPk(user_id);
     if (user) {
@@ -163,6 +184,14 @@ exports.removeMember = async (req, res) => {
 
     project.members = project.members.filter(m => m.user_id !== userId);
     await project.save();
+
+    // MySQL UserRole synchronization
+    await UserRole.destroy({
+      where: {
+        user_id: userId,
+        project_id: project._id.toString(),
+      }
+    });
 
     res.json({ message: 'Member removed', project });
   } catch (err) {
@@ -224,5 +253,18 @@ exports.getProjectMembers = async (req, res) => {
     res.json({ members });
   } catch (err) {
     res.status(500).json({ error: 'Failed to get members' });
+  }
+};
+
+// ─── Project Activity Log ──────────────────────────────────────────────────────
+exports.getActivity = async (req, res) => {
+  try {
+    const logs = await ActivityLog.find({ project_id: req.params.id })
+      .sort('-createdAt')
+      .limit(50)
+      .lean();
+    res.json({ logs });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch activity log' });
   }
 };

@@ -24,7 +24,7 @@ const User = sequelize.define('User', {
     allowNull: true, // null for Google OAuth users
   },
   avatar: {
-    type: DataTypes.STRING(500),
+    type: DataTypes.TEXT('long'),
     allowNull: true,
     defaultValue: null,
   },

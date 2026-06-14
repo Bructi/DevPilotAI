@@ -155,7 +155,11 @@ userRouter.get('/integrations/github', async (req, res) => {
   try {
     const user = await UserModel.findByPk(req.user.userId, { attributes: ['github_data', 'github_pat'] });
     if (!user?.github_data) return res.json({ connected: false });
-    res.json({ connected: true, data: user.github_data });
+    let parsedData = user.github_data;
+    if (typeof parsedData === 'string') {
+      try { parsedData = JSON.parse(parsedData); } catch (e) {}
+    }
+    res.json({ connected: true, data: parsedData });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -207,7 +211,11 @@ userRouter.get('/integrations/jira', async (req, res) => {
   try {
     const user = await UserModel.findByPk(req.user.userId, { attributes: ['jira_data', 'jira_token'] });
     if (!user?.jira_data) return res.json({ connected: false });
-    res.json({ connected: true, data: user.jira_data });
+    let parsedData = user.jira_data;
+    if (typeof parsedData === 'string') {
+      try { parsedData = JSON.parse(parsedData); } catch (e) {}
+    }
+    res.json({ connected: true, data: parsedData });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

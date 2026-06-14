@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 
 const navMain = [
   { icon: LayoutDashboard, label: 'Dashboard', to: '/dashboard' },
+  { icon: Users, label: 'Teams', to: '/teams' },
   { icon: FolderKanban, label: 'Projects', to: '/projects' },
   { icon: Bell, label: 'Notifications', to: '/notifications' },
 ];
@@ -140,7 +141,7 @@ export default function Sidebar() {
         {/* User info */}
         <div style={{ marginTop: 8, padding: sidebarCollapsed ? '8px 4px' : '10px 12px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-glass)' }}>
           <div className="avatar avatar-sm" style={{ flexShrink: 0 }}>
-            {user?.avatar ? <img src={user.avatar} style={{ width: '100%', height: '100%', borderRadius: '50%' }} /> : (user?.name?.[0] || 'U')}
+            {user?.avatar && user.avatar.length > 500 ? <img src={user.avatar} style={{ width: '100%', height: '100%', borderRadius: '50%' }} onError={(e) => e.target.style.display = 'none'} /> : (user?.name?.[0]?.toUpperCase() || 'U')}
           </div>
           {!sidebarCollapsed && (
             <div style={{ flex: 1, overflow: 'hidden' }}>

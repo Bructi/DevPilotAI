@@ -16,10 +16,15 @@ export default function ForgotPasswordPage() {
 
   const onSubmit = async (data) => {
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1500));
-    setSent(true);
-    toast.success('Password reset link sent!');
-    setLoading(false);
+    try {
+      await authAPI.forgotPassword({ email: data.email });
+      setSent(true);
+      toast.success('Password reset link sent!');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to send reset link');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

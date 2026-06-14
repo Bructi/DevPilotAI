@@ -162,8 +162,8 @@ export default function Topbar() {
         {/* User Avatar */}
         <Link to="/profile" style={{ textDecoration: 'none' }}>
           <div className="avatar avatar-sm" style={{ cursor: 'pointer', border: '2px solid rgba(99,102,241,0.4)' }}>
-            {user?.avatar ? (
-              <img src={user.avatar} alt={user.name} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+            {user?.avatar && user.avatar.length > 500 ? (
+              <img src={user.avatar} alt={user.name} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} onError={(e) => e.target.style.display = 'none'} />
             ) : (
               user?.name?.[0]?.toUpperCase() || 'U'
             )}

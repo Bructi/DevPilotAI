@@ -257,3 +257,31 @@ exports.resetPassword = async (req, res) => {
     res.status(500).json({ error: 'Failed to reset password' });
   }
 };
+
+// ─── Sessions ────────────────────────────────────────────────────────────────
+exports.getSessions = async (req, res) => {
+  try {
+    const sessions = await Session.findAll({ 
+      where: { user_id: req.user.userId, is_revoked: false },
+      order: [['created_at', 'DESC']]
+    });
+    res.json({ sessions });
+  } catch (err) {
+    console.error('Get sessions error:', err);
+    res.status(500).json({ error: 'Failed to get sessions' });
+  }
+};
+
+exports.revokeSession = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const session = await Session.findOne({ where: { id, user_id: req.user.userId } });
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    await session.update({ is_revoked: true });
+    res.json({ message: 'Session revoked successfully' });
+  } catch (err) {
+    console.error('Revoke session error:', err);
+    res.status(500).json({ error: 'Failed to revoke session' });
+  }
+};

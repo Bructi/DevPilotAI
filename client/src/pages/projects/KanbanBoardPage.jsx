@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,7 +12,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, X, Loader2, GripVertical, Calendar, User, Flag,
-  MessageSquare, Paperclip, CheckSquare, Clock, AlertTriangle, Sparkles, ArrowLeft,
+  MessageSquare, Paperclip, CheckSquare, Clock, AlertTriangle, Sparkles, ArrowLeft, Trash2, CheckCircle2
 } from 'lucide-react';
 import { taskAPI } from '../../services/api';
 import { useAuthStore } from '../../store';
@@ -141,6 +141,29 @@ export default function KanbanBoardPage() {
     setBoard(newBoard);
   };
 
+  const completeMutation = useMutation({
+    mutationFn: (taskId) => taskAPI.update(projectId, taskId, { status: 'completed' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+      toast.success('Task marked as complete');
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (taskId) => taskAPI.delete(projectId, taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+      toast.success('Task deleted');
+    }
+  });
+
+  const handleCompleteTask = (task) => completeMutation.mutate(task._id);
+  const handleDeleteTask = (task) => {
+    if(window.confirm('Are you sure you want to delete this task?')) {
+      deleteMutation.mutate(task._id);
+    }
+  };
+
   if (isLoading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 400 }}>
       <Loader2 size={32} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
@@ -182,6 +205,8 @@ export default function KanbanBoardPage() {
               tasks={board[col.id] || []}
               onAddTask={() => setShowAddTask(col.id)}
               onTaskClick={setSelectedTask}
+              onComplete={handleCompleteTask}
+              onDelete={handleDeleteTask}
             />
           ))}
           <div style={{ minWidth: 24, flexShrink: 0 }} />
@@ -210,6 +235,7 @@ export default function KanbanBoardPage() {
           <TaskDetailModal
             task={selectedTask}
             projectId={projectId}
+            board={board}
             onClose={() => setSelectedTask(null)}
           />
         )}
@@ -219,7 +245,7 @@ export default function KanbanBoardPage() {
 }
 
 // ─── Kanban Column ─────────────────────────────────────────────────────────────
-function KanbanColumn({ column, tasks, onAddTask, onTaskClick }) {
+function KanbanColumn({ column, tasks, onAddTask, onTaskClick, onComplete, onDelete }) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
     data: { columnId: column.id },
@@ -250,7 +276,7 @@ function KanbanColumn({ column, tasks, onAddTask, onTaskClick }) {
       <SortableContext items={tasks.map(t => t._id)} strategy={verticalListSortingStrategy}>
         <div style={{ flex: 1, padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', minHeight: 100 }}>
           {tasks.map(task => (
-            <SortableTaskCard key={task._id} task={task} onClick={() => onTaskClick(task)} />
+            <SortableTaskCard key={task._id} task={task} onClick={() => onTaskClick(task)} onComplete={onComplete} onDelete={onDelete} />
           ))}
           {tasks.length === 0 && (
             <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
@@ -264,22 +290,23 @@ function KanbanColumn({ column, tasks, onAddTask, onTaskClick }) {
 }
 
 // ─── Sortable Task Card ────────────────────────────────────────────────────────
-function SortableTaskCard({ task, onClick }) {
+function SortableTaskCard({ task, onClick, onComplete, onDelete }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task._id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   return (
     <div ref={setNodeRef} style={style}>
-      <TaskCard task={task} onClick={onClick} dragListeners={listeners} dragAttributes={attributes} />
+      <TaskCard task={task} onClick={onClick} dragListeners={listeners} dragAttributes={attributes} isDragging={isDragging} onComplete={onComplete} onDelete={onDelete} />
     </div>
   );
 }
 
 // ─── Task Card ─────────────────────────────────────────────────────────────────
-function TaskCard({ task, onClick, isDragging, dragListeners, dragAttributes }) {
+function TaskCard({ task, onClick, isDragging, dragListeners, dragAttributes, onComplete, onDelete }) {
   const pConfig = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
 
   return (
     <div
+      className="task-card"
       onClick={onClick}
       style={{
         background: isDragging ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)',
@@ -320,7 +347,17 @@ function TaskCard({ task, onClick, isDragging, dragListeners, dragAttributes }) 
                 <span style={{ fontSize: '0.65rem', padding: '1px 5px', background: 'var(--bg-glass-hover)', borderRadius: 4, color: 'var(--text-secondary)' }}>{task.story_points}pt</span>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div className="task-actions" style={{ display: 'flex', gap: 4, opacity: 0, transition: 'opacity 0.2s' }}>
+                {task.status !== 'completed' && (
+                  <button onClick={(e) => { e.stopPropagation(); onComplete(task); }} title="Mark Complete" style={{ background: 'transparent', border: 'none', color: '#10b981', cursor: 'pointer', padding: 2 }}>
+                    <CheckCircle2 size={14} />
+                  </button>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); onDelete(task); }} title="Delete Task" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 2 }}>
+                  <Trash2 size={14} />
+                </button>
+              </div>
               {task.comments?.length > 0 && (
                 <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 2 }}>
                   <MessageSquare size={9} /> {task.comments.length}
@@ -334,6 +371,9 @@ function TaskCard({ task, onClick, isDragging, dragListeners, dragAttributes }) 
             </div>
           </div>
         </div>
+        <style dangerouslySetInnerHTML={{__html: `
+          .task-card:hover .task-actions { opacity: 1 !important; }
+        `}} />
       </div>
     </div>
   );
@@ -393,24 +433,51 @@ function AddTaskPanel({ columnId, onClose, onSubmit, loading }) {
 }
 
 // ─── Task Detail Modal ─────────────────────────────────────────────────────────
-function TaskDetailModal({ task, projectId, onClose }) {
+function TaskDetailModal({ task, projectId, board, onClose }) {
   const pConfig = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const [comment, setComment] = useState('');
+  const [newSubtask, setNewSubtask] = useState('');
 
   const commentMutation = useMutation({
     mutationFn: () => taskAPI.addComment(projectId, task._id, { content: comment }),
     onSuccess: () => { setComment(''); queryClient.invalidateQueries(['kanban-board', projectId]); },
   });
 
+  const subtaskMutation = useMutation({
+    mutationFn: (title) => taskAPI.create(projectId, { title, parent_task: task._id, type: 'subtask', status: task.status }),
+    onSuccess: () => { setNewSubtask(''); queryClient.invalidateQueries(['kanban-board', projectId]); toast.success('Subtask created'); },
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: () => taskAPI.update(projectId, task._id, { status: 'completed' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+      toast.success('Task marked as complete');
+      onClose();
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => taskAPI.delete(projectId, task._id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+      toast.success('Task deleted');
+      onClose();
+    }
+  });
+
+  const allTasks = Object.values(board || {}).flat();
+  const subtasks = allTasks.filter(t => t.parent_task === task._id);
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: 0 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        style={{ background: '#0f172a', borderLeft: '1px solid rgba(255,255,255,0.1)', width: '100%', maxWidth: 520, height: '100vh', overflowY: 'auto', padding: '28px 28px' }}
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, width: '100%', maxWidth: 640, maxHeight: '90vh', overflowY: 'auto', padding: '32px' }}
       >
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
@@ -421,7 +488,17 @@ function TaskDetailModal({ task, projectId, onClose }) {
             </div>
             <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.4 }}>{task.title}</h2>
           </div>
-          <button onClick={onClose} className="btn btn-ghost btn-icon" style={{ color: 'var(--text-muted)' }}><X size={20} /></button>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {task.status !== 'completed' && (
+              <button onClick={() => completeMutation.mutate()} disabled={completeMutation.isPending} className="btn btn-secondary btn-sm" style={{ color: '#10b981', borderColor: 'rgba(16,185,129,0.3)', padding: '6px 10px' }}>
+                {completeMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} Complete
+              </button>
+            )}
+            <button onClick={() => { if(window.confirm('Are you sure you want to delete this task?')) deleteMutation.mutate(); }} disabled={deleteMutation.isPending} className="btn btn-ghost btn-sm" style={{ color: '#ef4444', padding: '6px 10px' }}>
+              {deleteMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Delete
+            </button>
+            <button onClick={onClose} className="btn btn-ghost btn-icon" style={{ color: 'var(--text-muted)' }}><X size={20} /></button>
+          </div>
         </div>
 
         {/* Description */}
@@ -461,6 +538,27 @@ function TaskDetailModal({ task, projectId, onClose }) {
             </div>
           </div>
         )}
+
+        {/* Subtasks (Subtree Forming) */}
+        <div style={{ marginBottom: 20 }}>
+          <label className="label">Subtasks ({subtasks.length})</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+            {subtasks.map(st => (
+              <div key={st._id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: PRIORITY_CONFIG[st.priority]?.color || '#6366f1' }} />
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', flex: 1, textDecoration: st.status === 'completed' ? 'line-through' : 'none' }}>{st.title}</span>
+                <span style={{ fontSize: '0.7rem', padding: '2px 8px', background: 'var(--bg-glass)', borderRadius: 6, color: 'var(--text-muted)' }}>{st.status.replace('_', ' ')}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="input" value={newSubtask} onChange={e => setNewSubtask(e.target.value)} placeholder="Add a subtask..." style={{ flex: 1 }}
+              onKeyDown={e => e.key === 'Enter' && newSubtask.trim() && subtaskMutation.mutate(newSubtask)} />
+            <button onClick={() => newSubtask.trim() && subtaskMutation.mutate(newSubtask)} className="btn btn-secondary btn-sm" disabled={!newSubtask.trim() || subtaskMutation.isPending}>
+              {subtaskMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Add
+            </button>
+          </div>
+        </div>
 
         {/* Comments */}
         <div>
