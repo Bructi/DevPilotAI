@@ -1,0 +1,485 @@
+﻿import React, { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
+  closestCorners, useDroppable,
+} from '@dnd-kit/core';
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
+  Plus, X, Loader2, GripVertical, Calendar, User, Flag,
+  MessageSquare, Paperclip, CheckSquare, Clock, AlertTriangle, Sparkles, ArrowLeft,
+} from 'lucide-react';
+import { taskAPI } from '../../services/api';
+import { useAuthStore } from '../../store';
+import toast from 'react-hot-toast';
+import { format } from 'date-fns';
+import { getSocket, joinProject } from '../../services/socket';
+
+const COLUMNS = [
+  { id: 'backlog', label: 'Backlog', color: 'var(--text-muted)' },
+  { id: 'todo', label: 'To Do', color: '#3b82f6' },
+  { id: 'in_progress', label: 'In Progress', color: '#f59e0b' },
+  { id: 'review', label: 'Review', color: '#8b5cf6' },
+  { id: 'testing', label: 'Testing', color: '#06b6d4' },
+  { id: 'completed', label: 'Completed', color: '#10b981' },
+];
+
+const PRIORITY_CONFIG = {
+  critical: { color: '#ef4444', icon: '🔴', label: 'Critical' },
+  high: { color: '#f59e0b', icon: '🟠', label: 'High' },
+  medium: { color: '#6366f1', icon: '🔵', label: 'Medium' },
+  low: { color: '#10b981', icon: '🟢', label: 'Low' },
+};
+
+export default function KanbanBoardPage() {
+  const { projectId } = useParams();
+  const { user } = useAuthStore();
+  const queryClient = useQueryClient();
+  const [board, setBoard] = useState({});
+  const [activeTask, setActiveTask] = useState(null);
+  const [showAddTask, setShowAddTask] = useState(null);
+  const [selectedTask, setSelectedTask] = useState(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['kanban-board', projectId],
+    queryFn: () => taskAPI.getBoard(projectId).then(r => r.data.board),
+    onSuccess: (data) => setBoard(data),
+  });
+
+  useEffect(() => {
+    if (data) setBoard(data);
+  }, [data]);
+
+  // Socket.IO for real-time updates
+  useEffect(() => {
+    joinProject(projectId);
+    const socket = getSocket();
+    if (!socket) return;
+
+    socket.on('task:created', ({ task }) => {
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+    });
+    socket.on('task:moved', () => {
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+    });
+    socket.on('task:updated', () => {
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+    });
+
+    return () => {
+      socket.off('task:created');
+      socket.off('task:moved');
+      socket.off('task:updated');
+    };
+  }, [projectId]);
+
+  const moveMutation = useMutation({
+    mutationFn: ({ taskId, data }) => taskAPI.move(projectId, taskId, data),
+    onError: () => {
+      toast.error('Failed to move task');
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => taskAPI.create(projectId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+      setShowAddTask(null);
+      toast.success('Task created!');
+    },
+    onError: () => toast.error('Failed to create task'),
+  });
+
+  const handleDragStart = ({ active }) => {
+    for (const col of Object.values(board)) {
+      const task = col.find(t => t._id === active.id);
+      if (task) { setActiveTask(task); break; }
+    }
+  };
+
+  const handleDragEnd = ({ active, over }) => {
+    setActiveTask(null);
+    if (!over || active.id === over.id) return;
+
+    const sourceCol = Object.keys(board).find(col => board[col].some(t => t._id === active.id));
+    const destCol = over.data.current?.columnId || Object.keys(board).find(col => board[col].some(t => t._id === over.id));
+
+    if (!sourceCol || !destCol) return;
+
+    const newBoard = { ...board };
+
+    if (sourceCol === destCol) {
+      // Reorder within same column
+      const tasks = [...newBoard[sourceCol]];
+      const oldIdx = tasks.findIndex(t => t._id === active.id);
+      const newIdx = tasks.findIndex(t => t._id === over.id);
+      newBoard[sourceCol] = arrayMove(tasks, oldIdx, newIdx);
+    } else {
+      // Move to different column
+      const sourceTasks = [...newBoard[sourceCol]];
+      const destTasks = [...newBoard[destCol]];
+      const taskIdx = sourceTasks.findIndex(t => t._id === active.id);
+      const [task] = sourceTasks.splice(taskIdx, 1);
+      task.status = destCol;
+      destTasks.push(task);
+      newBoard[sourceCol] = sourceTasks;
+      newBoard[destCol] = destTasks;
+
+      moveMutation.mutate({ taskId: active.id, data: { newStatus: destCol, newOrder: destTasks.length - 1, sourceStatus: sourceCol } });
+    }
+
+    setBoard(newBoard);
+  };
+
+  if (isLoading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 400 }}>
+      <Loader2 size={32} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, height: '100%' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Link to={`/projects/${projectId}`} style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#818cf8', fontSize: '0.85rem', textDecoration: 'none', width: 'fit-content', fontWeight: 500 }}>
+          <ArrowLeft size={14} /> Back to Project Details
+        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)' }}>Kanban Board</h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginTop: 2 }}>
+              {Object.values(board).flat().length} total tasks · Drag to move between columns
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-secondary btn-sm" style={{ gap: 6 }}>
+              <Sparkles size={13} /> AI Suggestions
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowAddTask('backlog')} style={{ gap: 6 }}>
+              <Plus size={14} /> Add Task
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Board */}
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 16, paddingRight: 24, minHeight: 600 }}>
+          {COLUMNS.map(col => (
+            <KanbanColumn
+              key={col.id}
+              column={col}
+              tasks={board[col.id] || []}
+              onAddTask={() => setShowAddTask(col.id)}
+              onTaskClick={setSelectedTask}
+            />
+          ))}
+          <div style={{ minWidth: 24, flexShrink: 0 }} />
+        </div>
+
+        <DragOverlay>
+          {activeTask && <TaskCard task={activeTask} isDragging />}
+        </DragOverlay>
+      </DndContext>
+
+      {/* Add Task Panel */}
+      <AnimatePresence>
+        {showAddTask && (
+          <AddTaskPanel
+            columnId={showAddTask}
+            onClose={() => setShowAddTask(null)}
+            onSubmit={(data) => createMutation.mutate({ ...data, status: showAddTask })}
+            loading={createMutation.isPending}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Task Detail Modal */}
+      <AnimatePresence>
+        {selectedTask && (
+          <TaskDetailModal
+            task={selectedTask}
+            projectId={projectId}
+            onClose={() => setSelectedTask(null)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Kanban Column ─────────────────────────────────────────────────────────────
+function KanbanColumn({ column, tasks, onAddTask, onTaskClick }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: column.id,
+    data: { columnId: column.id },
+  });
+
+  return (
+    <div ref={setNodeRef} style={{
+      width: 280, minWidth: 280, display: 'flex', flexDirection: 'column',
+      background: isOver ? `${column.color}08` : 'rgba(255,255,255,0.025)',
+      border: `1px solid ${isOver ? column.color + '30' : 'rgba(255,255,255,0.07)'}`,
+      borderRadius: 16, overflow: 'hidden', transition: 'all 0.2s',
+    }}>
+      {/* Column Header */}
+      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${column.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: column.color }} />
+          <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{column.label}</span>
+          <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '1px 7px', borderRadius: 99, background: `${column.color}20`, color: column.color }}>
+            {tasks.length}
+          </span>
+        </div>
+        <button onClick={onAddTask} className="btn btn-ghost btn-icon" style={{ color: 'var(--text-muted)', padding: 4 }} title="Add task">
+          <Plus size={14} />
+        </button>
+      </div>
+
+      {/* Tasks */}
+      <SortableContext items={tasks.map(t => t._id)} strategy={verticalListSortingStrategy}>
+        <div style={{ flex: 1, padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', minHeight: 100 }}>
+          {tasks.map(task => (
+            <SortableTaskCard key={task._id} task={task} onClick={() => onTaskClick(task)} />
+          ))}
+          {tasks.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+              Drop tasks here
+            </div>
+          )}
+        </div>
+      </SortableContext>
+    </div>
+  );
+}
+
+// ─── Sortable Task Card ────────────────────────────────────────────────────────
+function SortableTaskCard({ task, onClick }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task._id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <TaskCard task={task} onClick={onClick} dragListeners={listeners} dragAttributes={attributes} />
+    </div>
+  );
+}
+
+// ─── Task Card ─────────────────────────────────────────────────────────────────
+function TaskCard({ task, onClick, isDragging, dragListeners, dragAttributes }) {
+  const pConfig = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: isDragging ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)',
+        border: isDragging ? '1px solid rgba(99,102,241,0.4)' : '1px solid rgba(255,255,255,0.07)',
+        borderRadius: 12, padding: '12px 14px', cursor: 'pointer',
+        transition: 'all 0.15s', boxShadow: isDragging ? '0 8px 30px rgba(0,0,0,0.4)' : 'none',
+      }}
+      onMouseEnter={e => { if (!isDragging) { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; } }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; }}
+    >
+      {/* Drag handle + title */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <div {...dragListeners} {...dragAttributes} style={{ color: 'var(--text-muted)', cursor: 'grab', marginTop: 2, flexShrink: 0 }}>
+          <GripVertical size={12} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <p style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.4, marginBottom: task.tags?.length ? 8 : 0 }}>{task.title}</p>
+
+          {/* Tags */}
+          {task.tags?.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+              {task.tags.slice(0, 2).map(tag => (
+                <span key={tag} style={{ fontSize: '0.65rem', padding: '1px 6px', background: 'rgba(99,102,241,0.12)', color: '#818cf8', borderRadius: 4 }}>{tag}</span>
+              ))}
+            </div>
+          )}
+
+          {/* Footer */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 600, color: pConfig.color }}>{pConfig.icon}</span>
+              {task.due_date && (
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Calendar size={9} /> {format(new Date(task.due_date), 'MMM d')}
+                </span>
+              )}
+              {task.story_points && (
+                <span style={{ fontSize: '0.65rem', padding: '1px 5px', background: 'var(--bg-glass-hover)', borderRadius: 4, color: 'var(--text-secondary)' }}>{task.story_points}pt</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {task.comments?.length > 0 && (
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <MessageSquare size={9} /> {task.comments.length}
+                </span>
+              )}
+              {task.checklist?.length > 0 && (
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <CheckSquare size={9} /> {task.checklist.filter(c => c.is_done).length}/{task.checklist.length}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Add Task Panel ────────────────────────────────────────────────────────────
+function AddTaskPanel({ columnId, onClose, onSubmit, loading }) {
+  const [title, setTitle] = useState('');
+  const [priority, setPriority] = useState('medium');
+  const [storyPoints, setStoryPoints] = useState('');
+  const [dueDate, setDueDate] = useState('');
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
+        style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 28, width: '100%', maxWidth: 480 }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Add Task to {COLUMNS.find(c => c.id === columnId)?.label}</h3>
+          <button onClick={onClose} className="btn btn-ghost btn-icon" style={{ color: 'var(--text-muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label className="label">Task Title *</label>
+            <input className="input" value={title} onChange={e => setTitle(e.target.value)} placeholder="What needs to be done?" autoFocus
+              onKeyDown={e => e.key === 'Enter' && title.trim() && onSubmit({ title, priority, story_points: storyPoints ? Number(storyPoints) : null, due_date: dueDate || null })} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label className="label">Priority</label>
+              <select className="input" value={priority} onChange={e => setPriority(e.target.value)}>
+                {Object.entries(PRIORITY_CONFIG).map(([v, c]) => <option key={v} value={v}>{c.icon} {c.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Story Points</label>
+              <input type="number" className="input" value={storyPoints} onChange={e => setStoryPoints(e.target.value)} placeholder="e.g. 3" min={0} max={100} />
+            </div>
+            <div>
+              <label className="label">Due Date</label>
+              <input type="date" className="input" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} className="btn btn-secondary">Cancel</button>
+            <button onClick={() => onSubmit({ title, priority, story_points: storyPoints ? Number(storyPoints) : null, due_date: dueDate || null })} disabled={!title.trim() || loading} className="btn btn-primary">
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <><Plus size={14} /> Add Task</>}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── Task Detail Modal ─────────────────────────────────────────────────────────
+function TaskDetailModal({ task, projectId, onClose }) {
+  const pConfig = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
+  const { user } = useAuthStore();
+  const queryClient = useQueryClient();
+  const [comment, setComment] = useState('');
+
+  const commentMutation = useMutation({
+    mutationFn: () => taskAPI.addComment(projectId, task._id, { content: comment }),
+    onSuccess: () => { setComment(''); queryClient.invalidateQueries(['kanban-board', projectId]); },
+  });
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: 0 }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        style={{ background: '#0f172a', borderLeft: '1px solid rgba(255,255,255,0.1)', width: '100%', maxWidth: 520, height: '100vh', overflowY: 'auto', padding: '28px 28px' }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: pConfig.color }}>{pConfig.icon} {pConfig.label} Priority</span>
+              <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: 'var(--bg-glass-hover)', borderRadius: 6, color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{task.type}</span>
+            </div>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.4 }}>{task.title}</h2>
+          </div>
+          <button onClick={onClose} className="btn btn-ghost btn-icon" style={{ color: 'var(--text-muted)' }}><X size={20} /></button>
+        </div>
+
+        {/* Description */}
+        {task.description && (
+          <div style={{ marginBottom: 20 }}>
+            <label className="label">Description</label>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', lineHeight: 1.6 }}>{task.description}</p>
+          </div>
+        )}
+
+        {/* Meta */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+          {[
+            { label: 'Status', value: task.status?.replace('_', ' '), color: '#6366f1' },
+            { label: 'Priority', value: `${pConfig.icon} ${pConfig.label}`, color: pConfig.color },
+            task.story_points && { label: 'Story Points', value: `${task.story_points}pt` },
+            task.due_date && { label: 'Due Date', value: format(new Date(task.due_date), 'MMM d, yyyy') },
+          ].filter(Boolean).map(meta => (
+            <div key={meta.label} style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '10px 14px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 3 }}>{meta.label}</div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: meta.color || '#f8fafc', textTransform: 'capitalize' }}>{meta.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Checklist */}
+        {task.checklist?.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <label className="label">Checklist ({task.checklist.filter(c => c.is_done).length}/{task.checklist.length})</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {task.checklist.map((item, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--bg-glass)', borderRadius: 8 }}>
+                  <CheckSquare size={14} style={{ color: item.is_done ? '#10b981' : '#475569' }} />
+                  <span style={{ fontSize: '0.85rem', color: item.is_done ? '#64748b' : '#f8fafc', textDecoration: item.is_done ? 'line-through' : 'none' }}>{item.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Comments */}
+        <div>
+          <label className="label">Comments ({task.comments?.length || 0})</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+            {task.comments?.map((c, i) => (
+              <div key={i} style={{ background: 'var(--bg-glass)', borderRadius: 10, padding: '12px 14px' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: 4 }}>{c.content}</p>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{format(new Date(c.created_at), 'MMM d, h:mm a')}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="input" value={comment} onChange={e => setComment(e.target.value)} placeholder="Add a comment..." style={{ flex: 1 }}
+              onKeyDown={e => e.key === 'Enter' && comment.trim() && commentMutation.mutate()} />
+            <button onClick={() => comment.trim() && commentMutation.mutate()} className="btn btn-primary btn-sm" disabled={!comment.trim()}>Post</button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}

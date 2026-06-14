@@ -1,0 +1,27 @@
+{
+  "name": "devpilotai",
+  "version": "1.0.0",
+  "description": "AI-Powered Software Development and Project Management Platform",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev:client\" \"npm run dev:ai\"",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "dev:ai": "cd ai-engine && python main.py",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
+    "start:server": "npm run start --prefix server",
+    "start:client": "npm run preview --prefix client"
+  },
+  "keywords": [
+    "devpilot",
+    "ai",
+    "project-management",
+    "kanban",
+    "sprint-planner"
+  ],
+  "author": "DevPilot AI",
+  "license": "MIT",
+  "dependencies": {
+    "concurrently": "^10.0.3"
+  }
+}
