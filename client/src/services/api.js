@@ -81,6 +81,13 @@ export const teamAPI = {
   create: (data) => api.post('/teams', data),
   getMembers: (teamId) => api.get(`/teams/${teamId}/members`),
   addMember: (teamId, data) => api.post(`/teams/${teamId}/members`, data),
+  update: (teamId, data) => api.put(`/teams/${teamId}`, data),
+  delete: (teamId) => api.delete(`/teams/${teamId}`),
+  updateMember: (teamId, userId, data) => api.put(`/teams/${teamId}/members/${userId}`, data),
+  removeMember: (teamId, userId) => api.delete(`/teams/${teamId}/members/${userId}`),
+  respondInvite: (teamId, data) => api.post(`/teams/${teamId}/invites/respond`, data),
+  getChat: (teamId, params) => api.get(`/teams/${teamId}/chat`, { params }),
+  sendMessage: (teamId, data) => api.post(`/teams/${teamId}/chat`, data),
 };
 
 export const projectAPI = {
@@ -110,6 +117,9 @@ export const sprintAPI = {
   getAll: (projectId) => api.get(`/sprints/${projectId}`),
   create: (projectId, data) => api.post(`/sprints/${projectId}`, data),
   update: (projectId, sprintId, data) => api.put(`/sprints/${projectId}/${sprintId}`, data),
+  start: (projectId, sprintId) => api.patch(`/sprints/${projectId}/${sprintId}/start`),
+  complete: (projectId, sprintId) => api.patch(`/sprints/${projectId}/${sprintId}/complete`),
+  estimateTasks: (projectId, sprintId) => api.post(`/sprints/${projectId}/${sprintId}/estimate`),
 };
 
 export const chatAPI = {
@@ -147,12 +157,18 @@ export const analyticsAPI = {
 export const aiAPI = {
   chat: (messages, project_context = null, context_type = 'general', project_id = null, conversation_id = null) =>
     api.post('/ai/chat', { messages, project_context, context_type, project_id, conversation_id }),
+  suggestTasks: (data) => api.post('/ai/tasks/suggest', data),
+  planProject: (data) => api.post('/ai/project/plan', data),
+  analyzeGithub: (data) => api.post('/ai/github/analyze', data),
+  sprintRetrospective: (data) => api.post('/ai/sprint/retrospective', data),
+  smartPlanSprint: (data) => api.post('/ai/sprint/smart-plan', data),
   getConversations: (projectId) => api.get(`/ai/conversations/${projectId}`),
   planSprint: (data) => api.post('/ai/sprint/plan', data),
   generateDocument: (data) => api.post('/ai/documents/generate', data),
   getDocuments: (projectId) => api.get(`/ai/documents/${projectId}`),
   deleteDocument: (id) => api.delete(`/ai/documents/${id}`),
   breakdownTask: (data) => api.post('/ai/tasks/breakdown', data),
+  enhanceTask: (data) => api.post('/ai/tasks/enhance', data),
   reviewCode: (data) => api.post('/ai/code/review', data),
   health: () => api.get('/ai/health'),
 };

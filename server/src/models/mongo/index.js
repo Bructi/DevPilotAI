@@ -32,7 +32,8 @@ const sprintSchema = new mongoose.Schema({
 
 // Chat Message
 const chatMessageSchema = new mongoose.Schema({
-  project_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true, index: true },
+  project_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', index: true },
+  team_id: { type: String, index: true },
   channel: { type: String, default: 'general' },
   sender_id: { type: String, required: true },
   content: { type: String, required: true, maxlength: 5000 },
@@ -52,7 +53,7 @@ const notificationSchema = new mongoose.Schema({
   type: {
     type: String,
     enum: ['task_assigned', 'task_updated', 'deadline', 'sprint_start', 'sprint_end',
-           'mention', 'comment', 'code_review', 'pr_merged', 'team_invite', 'system'],
+           'mention', 'comment', 'code_review', 'pr_merged', 'team_invite', 'system', 'chat_message'],
     required: true,
   },
   title: { type: String, required: true },

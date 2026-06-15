@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Bot, Sparkles, Send, Loader2, FileText, Plus, Users, UserPlus,
   Code2, Zap, ScrollText, RefreshCw, Copy, Check, ChevronDown,
-  AlertTriangle, BarChart3, TrendingUp, Target, Clock, Activity, Trash2,
+  AlertTriangle, BarChart3, TrendingUp, Target, Clock, Activity, Trash2, CalendarDays, GitBranch
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import {
@@ -92,6 +92,65 @@ export function AIAssistantPage() {
   });
   const [sprintResult, setSprintResult] = useState('');
   const [sprintLoading, setSprintLoading] = useState(false);
+  const [reviewResult, setReviewResult] = useState('');
+  const [reviewLoading, setReviewLoading] = useState(false);
+
+  // Added states for tasks 2, 3, 6
+  const [projectPlanForm, setProjectPlanForm] = useState({ project_name: '', project_description: '', team_size: 1, deadline_weeks: 4, tech_stack: '' });
+  const [projectPlanResult, setProjectPlanResult] = useState('');
+  const [projectPlanLoading, setProjectPlanLoading] = useState(false);
+
+  const [githubRepos, setGithubRepos] = useState([]);
+  const [selectedRepo, setSelectedRepo] = useState('');
+  const [githubAnalysis, setGithubAnalysis] = useState('');
+  const [githubLoading, setGithubLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'github') {
+      userAPI.getGithubRepos().then(res => setGithubRepos(res.data.repos)).catch(() => {});
+    }
+    if (activeTab === 'project_planner' && currentProject && !projectPlanForm.project_name) {
+      setProjectPlanForm(prev => ({ ...prev, project_name: currentProject.name, project_description: currentProject.description }));
+    }
+  }, [activeTab, currentProject]);
+
+  const runProjectPlanning = async () => {
+    setProjectPlanLoading(true);
+    try {
+      const res = await aiAPI.planProject(projectPlanForm);
+      setProjectPlanResult(res.data.plan);
+    } catch (error) {
+      toast.error('Project planning failed');
+    } finally {
+      setProjectPlanLoading(false);
+    }
+  };
+
+  const runGithubAnalysis = async () => {
+    if (!selectedRepo) return toast.error('Please select a repository');
+    setGithubLoading(true);
+    try {
+      const res = await aiAPI.analyzeGithub({ repoFullName: selectedRepo, projectId });
+      setGithubAnalysis(res.data.analysis);
+    } catch (error) {
+      toast.error('GitHub analysis failed');
+    } finally {
+      setGithubLoading(false);
+    }
+  };
+
+  const runSmartSprintPlan = async () => {
+    setSprintLoading(true);
+    try {
+      const res = await aiAPI.smartPlanSprint({ projectId, teamSize: sprintForm.team_size, durationWeeks: sprintForm.sprint_duration_weeks });
+      setSprintResult(res.data.plan);
+      toast.success('Generated Smart Sprint Plan from Backlog!');
+    } catch (error) {
+      toast.error('Smart sprint planning failed');
+    } finally {
+      setSprintLoading(false);
+    }
+  };
 
   // Doc generation state
   const [docForm, setDocForm] = useState({
@@ -244,9 +303,11 @@ export function AIAssistantPage() {
 
   const tabs = [
     { id: 'chat', label: 'AI Chat', icon: Bot },
+    { id: 'project_planner', label: 'Project Planner', icon: CalendarDays },
     { id: 'sprint', label: 'Sprint Planner', icon: Zap },
     { id: 'docs', label: 'Doc Generator', icon: ScrollText },
     { id: 'review', label: 'Code Review', icon: Code2 },
+    { id: 'github', label: 'GitHub AI', icon: GitBranch },
   ];
 
   const inputStyle = {
@@ -440,9 +501,14 @@ export function AIAssistantPage() {
                 onChange={e => setSprintForm(p => ({ ...p, backlog_items: e.target.value }))}
                 placeholder="User authentication with JWT&#10;Project CRUD operations&#10;Kanban board with drag and drop&#10;Email notifications&#10;Real-time chat" />
             </div>
-            <button onClick={runSprintPlanning} disabled={sprintLoading} style={{ ...btnPrimary, opacity: sprintLoading ? 0.6 : 1 }}>
-              {sprintLoading ? <><Loader2 size={16} className="animate-spin" /> Planning...</> : <><Zap size={16} /> Generate Sprint Plan</>}
-            </button>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={runSprintPlanning} disabled={sprintLoading} style={{ ...btnPrimary, flex: 1, opacity: sprintLoading ? 0.6 : 1 }}>
+                {sprintLoading ? <><Loader2 size={16} className="animate-spin" /> Planning...</> : <><Zap size={16} /> Generate Plan</>}
+              </button>
+              <button onClick={runSmartSprintPlan} disabled={sprintLoading} style={{ ...btnPrimary, flex: 1, background: 'var(--bg-glass-hover)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+                {sprintLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} Smart Plan (Auto)
+              </button>
+            </div>
           </div>
           {sprintResult && (
             <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, overflowY: 'auto', position: 'relative' }}>
@@ -549,6 +615,95 @@ export function AIAssistantPage() {
                 </button>
               </div>
               <MdContent content={codeResult} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── PROJECT PLANNER TAB ────────────────────────────────────────────── */}
+      {activeTab === 'project_planner' && (
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: projectPlanResult ? '1fr 1.5fr' : '1fr', gap: 20, minHeight: 0, overflowY: 'auto' }}>
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <h2 style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <CalendarDays size={18} color="#6366f1" /> AI Project Planner
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Generate a complete roadmap with phases, estimates, and milestones.</p>
+            <div>
+              <label style={labelStyle}>Project Name</label>
+              <input style={inputStyle} value={projectPlanForm.project_name} onChange={e => setProjectPlanForm(p => ({ ...p, project_name: e.target.value }))} />
+            </div>
+            <div>
+              <label style={labelStyle}>Project Description</label>
+              <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} value={projectPlanForm.project_description} onChange={e => setProjectPlanForm(p => ({ ...p, project_description: e.target.value }))} />
+            </div>
+            <div>
+              <label style={labelStyle}>Tech Stack</label>
+              <input style={inputStyle} value={projectPlanForm.tech_stack} onChange={e => setProjectPlanForm(p => ({ ...p, tech_stack: e.target.value }))} placeholder="e.g. React, Node.js, MongoDB" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={labelStyle}>Team Size</label>
+                <input style={inputStyle} type="number" min={1} max={50} value={projectPlanForm.team_size} onChange={e => setProjectPlanForm(p => ({ ...p, team_size: e.target.value }))} />
+              </div>
+              <div>
+                <label style={labelStyle}>Deadline (weeks)</label>
+                <input style={inputStyle} type="number" min={1} max={52} value={projectPlanForm.deadline_weeks} onChange={e => setProjectPlanForm(p => ({ ...p, deadline_weeks: e.target.value }))} />
+              </div>
+            </div>
+            <button onClick={runProjectPlanning} disabled={projectPlanLoading || !projectPlanForm.project_name} style={{ ...btnPrimary, marginTop: 'auto', opacity: projectPlanLoading ? 0.6 : 1 }}>
+              {projectPlanLoading ? <><Loader2 size={16} className="animate-spin" /> Generating Plan...</> : <><CalendarDays size={16} /> Generate Plan</>}
+            </button>
+          </div>
+          {projectPlanResult && (
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, overflowY: 'auto', position: 'relative' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem' }}>Roadmap & Plan</h3>
+                <button onClick={() => { navigator.clipboard.writeText(projectPlanResult); toast.success('Copied to clipboard'); }} className="btn btn-ghost btn-icon">
+                  <Copy size={14} />
+                </button>
+              </div>
+              <MdContent content={projectPlanResult} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── GITHUB TAB ──────────────────────────────────────────────────────── */}
+      {activeTab === 'github' && (
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: githubAnalysis ? '1fr 1.5fr' : '1fr', gap: 20, minHeight: 0, overflowY: 'auto' }}>
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <h2 style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <GitBranch size={18} color="#6366f1" /> GitHub AI Insights
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Analyze connected repositories for task generation and repository health insights.</p>
+            <div>
+              <label style={labelStyle}>Select Repository</label>
+              {githubRepos.length === 0 ? (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                  No repositories found. Ensure your GitHub account is connected in profile settings.
+                </div>
+              ) : (
+                <select style={inputStyle} value={selectedRepo} onChange={e => setSelectedRepo(e.target.value)}>
+                  <option value="">-- Select a repo --</option>
+                  {githubRepos.map(repo => (
+                    <option key={repo.id} value={repo.full_name}>{repo.full_name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <button onClick={runGithubAnalysis} disabled={githubLoading || !selectedRepo} style={{ ...btnPrimary, marginTop: 'auto', opacity: githubLoading ? 0.6 : 1 }}>
+              {githubLoading ? <><Loader2 size={16} className="animate-spin" /> Analyzing...</> : <><Sparkles size={16} /> Analyze Repository</>}
+            </button>
+          </div>
+          {githubAnalysis && (
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, overflowY: 'auto', position: 'relative' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem' }}>AI Repository Analysis</h3>
+                <button onClick={() => { navigator.clipboard.writeText(githubAnalysis); toast.success('Copied to clipboard'); }} className="btn btn-ghost btn-icon">
+                  <Copy size={14} />
+                </button>
+              </div>
+              <MdContent content={githubAnalysis} />
             </div>
           )}
         </div>
@@ -692,7 +847,7 @@ export function AnalyticsPage() {
           <h3 style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 20, fontSize: '0.95rem' }}>Task Distribution</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
             <ResponsiveContainer width={160} height={160}>
-              <PieChart><Pie data={taskData} cx={75} cy={75} innerRadius={45} outerRadius={70} dataKey="value">
+              <PieChart><Pie isAnimationActive={false} data={taskData} cx={75} cy={75} innerRadius={45} outerRadius={70} dataKey="value">
                 {taskData.map((d, i) => <Cell key={i} fill={d.color} />)}
               </Pie></PieChart>
             </ResponsiveContainer>
@@ -710,15 +865,17 @@ export function AnalyticsPage() {
         <div style={{ gridColumn: '1 / -1', background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 18, padding: 24 }}>
           <h3 style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 20, fontSize: '0.95rem' }}>Sprint Velocity</h3>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={velocityData}>
-              <XAxis dataKey="sprint" tick={{ fill: '#64748b', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)' }} />
-              <Bar dataKey="points" fill="url(#barGradient)" radius={[6, 6, 0, 0]} />
-              <defs><linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" /><stop offset="100%" stopColor="#8b5cf666" />
-              </linearGradient></defs>
-            </BarChart>
+            {velocityData.length > 0 ? (
+              <BarChart data={velocityData}>
+                <XAxis dataKey="sprint" tick={{ fill: '#64748b', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
+                <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)' }} />
+                <Bar isAnimationActive={false} dataKey="points" fill="url(#barGradient)" radius={[6, 6, 0, 0]} />
+                <defs><linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#6366f1" /><stop offset="100%" stopColor="#8b5cf666" />
+                </linearGradient></defs>
+              </BarChart>
+            ) : null}
           </ResponsiveContainer>
         </div>
       </div>

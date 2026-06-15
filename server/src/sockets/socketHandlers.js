@@ -30,6 +30,15 @@ const initSocketHandlers = (io) => {
       socket.leave(`project:${projectId}:chat`);
     });
 
+    // ─── Team Room ─────────────────────────────────────────────────────────
+    socket.on('team:join', ({ teamId }) => {
+      socket.join(`team:${teamId}:chat`);
+    });
+
+    socket.on('team:leave', ({ teamId }) => {
+      socket.leave(`team:${teamId}:chat`);
+    });
+
     // ─── Real-Time Chat ────────────────────────────────────────────────────
     socket.on('chat:send', async ({ projectId, content, channel = 'general', type = 'text', mentions = [] }) => {
       try {

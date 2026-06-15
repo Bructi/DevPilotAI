@@ -34,6 +34,8 @@ export const getSocket = () => socket;
 
 export const joinProject = (projectId) => socket?.emit('project:join', { projectId });
 export const leaveProject = (projectId) => socket?.emit('project:leave', { projectId });
+export const joinTeam = (teamId) => socket?.emit('team:join', { teamId });
+export const leaveTeam = (teamId) => socket?.emit('team:leave', { teamId });
 export const sendChatMessage = (data) => socket?.emit('chat:send', data);
 export const sendTyping = (projectId, channel) => socket?.emit('chat:typing', { projectId, channel });
 export const sendStopTyping = (projectId) => socket?.emit('chat:stop_typing', { projectId });

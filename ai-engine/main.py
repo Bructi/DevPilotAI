@@ -84,6 +84,13 @@ class CodeReviewRequest(BaseModel):
     language: str = "javascript"
     context: Optional[str] = None
 
+class TaskEnhanceRequest(BaseModel):
+    title: str
+
+class GenerateSubtasksRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+
 # ─── System Prompts ───────────────────────────────────────────────────────────
 SYSTEM_PROMPTS = {
     "general": """IMPORTANT INSTRUCTION: Your name is Dev Copilot (or DevPilot AI). You were created by the DevPilot team. You must NEVER mention LLaMA, Groq, Meta, OpenAI, or any underlying model architecture. If asked about your identity, you must strictly identify as Dev Copilot.
@@ -349,6 +356,75 @@ Rate each category: ✅ Good / ⚠️ Needs Improvement / ❌ Critical Issue"""
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Code review failed: {str(e)}")
+
+# ─── Quick Enhance Task ────────────────────────────────────────────────────────
+@app.post("/tasks/enhance")
+async def enhance_task(req: TaskEnhanceRequest):
+    try:
+        prompt = f"""
+        Analyze this raw task title and enhance it for a Kanban board:
+        "{req.title}"
+
+        You must respond with ONLY a valid JSON object matching this schema exactly:
+        {{
+            "title": "A more professional, actionable version of the title",
+            "description": "A 1-2 sentence brief description of what needs to be done",
+            "priority": "low" | "medium" | "high" | "critical",
+            "story_points": an integer between 1 and 8 (use Fibonacci 1, 2, 3, 5, 8) representing complexity
+        }}
+        Do not include markdown blocks, just the JSON.
+        """
+        
+        response = await llm.ainvoke([
+            SystemMessage(content="You are an expert Agile Product Owner AI. Respond ONLY with valid JSON. Do not add markdown blocks like ```json."),
+            HumanMessage(content=prompt)
+        ])
+        
+        content = response.content.strip()
+        if content.startswith("```json"):
+            content = content[7:-3].strip()
+        elif content.startswith("```"):
+            content = content[3:-3].strip()
+            
+        import json
+        return json.loads(content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to enhance task: {str(e)}")
+
+# ─── Generate Subtasks ─────────────────────────────────────────────────────────
+@app.post("/tasks/generate-subtasks")
+async def generate_subtasks(req: GenerateSubtasksRequest):
+    try:
+        desc_str = f"Description: {req.description}" if req.description else ""
+        prompt = f"""
+        Break down this task into 3-7 actionable sub-tasks (checklist items):
+        Title: {req.title}
+        {desc_str}
+
+        You must respond with ONLY a valid JSON array matching this schema exactly:
+        [
+            {{ "title": "Sub-task 1", "is_done": false }},
+            {{ "title": "Sub-task 2", "is_done": false }}
+        ]
+        Do not include markdown blocks, just the JSON array.
+        """
+        
+        response = await llm.ainvoke([
+            SystemMessage(content="You are an expert Agile Developer AI. Respond ONLY with a valid JSON array. Do not add markdown blocks like ```json."),
+            HumanMessage(content=prompt)
+        ])
+        
+        content = response.content.strip()
+        if content.startswith("```json"):
+            content = content[7:-3].strip()
+        elif content.startswith("```"):
+            content = content[3:-3].strip()
+
+        import json
+        checklist = json.loads(content)
+        return { "checklist": checklist }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to breakdown task: {str(e)}")
 
 # ─── Run ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

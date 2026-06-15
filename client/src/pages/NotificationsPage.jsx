@@ -1,8 +1,8 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Bell, Check, CheckCheck, Trash2 } from 'lucide-react';
-import { notificationAPI } from '../services/api';
+import { Bell, Check, CheckCheck, Trash2, CheckCircle, XCircle } from 'lucide-react';
+import { notificationAPI, teamAPI } from '../services/api';
 import { useNotificationStore } from '../store';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -27,6 +27,17 @@ export default function NotificationsPage() {
   });
 
   const notifications = data?.notifications || [];
+
+  const handleInviteResponse = async (notif, action) => {
+    try {
+      await teamAPI.respondInvite(notif.data.team_id, { action, notificationId: notif._id });
+      toast.success(`Invite ${action}ed successfully`);
+      queryClient.invalidateQueries(['notifications']);
+      queryClient.invalidateQueries(['teams']);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to respond to invite');
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -64,8 +75,19 @@ export default function NotificationsPage() {
                     <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem', marginBottom: 3 }}>{notif.title}</div>
                     <div style={{ color: 'var(--text-secondary)', fontSize: '0.83rem', marginBottom: 6 }}>{notif.message}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{format(new Date(notif.createdAt), 'MMM d, h:mm a')}</div>
+                    
+                    {notif.type === 'team_invite' && !notif.is_read && (
+                      <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                        <button onClick={() => handleInviteResponse(notif, 'accept')} className="btn btn-primary btn-sm" style={{ padding: '4px 12px', fontSize: '0.8rem', height: 28 }}>
+                          <CheckCircle size={14} style={{ marginRight: 4 }} /> Accept
+                        </button>
+                        <button onClick={() => handleInviteResponse(notif, 'reject')} className="btn btn-ghost btn-sm" style={{ padding: '4px 12px', fontSize: '0.8rem', height: 28, color: '#ef4444' }}>
+                          <XCircle size={14} style={{ marginRight: 4 }} /> Reject
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  {!notif.is_read && (
+                  {!notif.is_read && notif.type !== 'team_invite' && (
                     <button onClick={() => notificationAPI.read(notif._id)} className="btn btn-ghost btn-icon" style={{ color: '#6366f1', padding: 6, flexShrink: 0 }} title="Mark as read">
                       <Check size={14} />
                     </button>

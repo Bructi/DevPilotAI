@@ -1,0 +1,4 @@
+_id,user_id,type,title,message,is_read,action_url,project_id,from_user_id,createdAt,updatedAt,__v,data.team_id
+6a2eb664ab2d5c51aeedfd42,1345a784-66cb-4641-b2d2-00518bb13211,system,Welcome to DevPilot AI!,We are thrilled to have you here. Your notifications are now working correctly.,true,,,,2026-06-14T14:10:44.533Z,2026-06-14T14:15:16.846Z,0,
+6a2eb664ab2d5c51aeedfd43,1345a784-66cb-4641-b2d2-00518bb13211,mention,You were mentioned in a task,"@Alex mentioned you in ""Fix navigation bar responsiveness""",true,,,,2026-06-14T14:10:44.538Z,2026-06-14T14:15:16.846Z,0,
+6a2fb787ab38dc5b7cf0bb6f,1345a784-66cb-4641-b2d2-00518bb13211,chat_message,New message in Frontend Ninjas,Aniket Dhoke 2: woww this is insane,false,,,,2026-06-15T08:27:51.113Z,2026-06-15T08:27:51.113Z,0,c21b4672-9c7b-44ae-97c7-405d0922eea4

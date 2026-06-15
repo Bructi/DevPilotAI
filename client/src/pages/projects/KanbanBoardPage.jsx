@@ -12,9 +12,9 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, X, Loader2, GripVertical, Calendar, User, Flag,
-  MessageSquare, Paperclip, CheckSquare, Clock, AlertTriangle, Sparkles, ArrowLeft, Trash2, CheckCircle2
+  MessageSquare, Paperclip, CheckSquare, Clock, AlertTriangle, Sparkles, ArrowLeft, Trash2, CheckCircle2, Search, Zap, Wand2
 } from 'lucide-react';
-import { taskAPI } from '../../services/api';
+import { taskAPI, aiAPI } from '../../services/api';
 import { useAuthStore } from '../../store';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -43,7 +43,30 @@ export default function KanbanBoardPage() {
   const [board, setBoard] = useState({});
   const [activeTask, setActiveTask] = useState(null);
   const [showAddTask, setShowAddTask] = useState(null);
+  const [showAiSuggest, setShowAiSuggest] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
+  
+  // Search and Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const searchInputRef = React.useRef(null);
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (e.key === 'Escape') {
+        setSearchQuery('');
+        setPriorityFilter('all');
+        searchInputRef.current?.blur();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -185,7 +208,7 @@ export default function KanbanBoardPage() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn btn-secondary btn-sm" style={{ gap: 6 }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowAiSuggest(true)} style={{ gap: 6 }}>
               <Sparkles size={13} /> AI Suggestions
             </button>
             <button className="btn btn-primary btn-sm" onClick={() => setShowAddTask('backlog')} style={{ gap: 6 }}>
@@ -193,22 +216,55 @@ export default function KanbanBoardPage() {
             </button>
           </div>
         </div>
+
+        {/* ─── Search & Filter Bar ─── */}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '10px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
+            <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input 
+              ref={searchInputRef}
+              type="text" 
+              placeholder="Search tasks... (Press '/')" 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{ width: '100%', padding: '8px 12px 8px 36px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: 'var(--text-primary)', fontSize: '0.85rem' }}
+            />
+          </div>
+          <select 
+            value={priorityFilter} 
+            onChange={e => setPriorityFilter(e.target.value)}
+            style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: 'var(--text-primary)', fontSize: '0.85rem' }}
+          >
+            <option value="all">All Priorities</option>
+            {Object.entries(PRIORITY_CONFIG).map(([v, c]) => <option key={v} value={v}>{c.label}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Board */}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 16, paddingRight: 24, minHeight: 600 }}>
-          {COLUMNS.map(col => (
-            <KanbanColumn
-              key={col.id}
-              column={col}
-              tasks={board[col.id] || []}
-              onAddTask={() => setShowAddTask(col.id)}
-              onTaskClick={setSelectedTask}
-              onComplete={handleCompleteTask}
-              onDelete={handleDeleteTask}
-            />
-          ))}
+          {COLUMNS.map(col => {
+            // Apply Filters
+            const filteredTasks = (board[col.id] || []).filter(t => {
+              if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+              if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
+              return true;
+            });
+
+            return (
+              <KanbanColumn
+                key={col.id}
+                column={col}
+                tasks={filteredTasks}
+                onAddTask={() => setShowAddTask(col.id)}
+                onTaskClick={setSelectedTask}
+                onComplete={handleCompleteTask}
+                onDelete={handleDeleteTask}
+                projectId={projectId}
+              />
+            );
+          })}
           <div style={{ minWidth: 24, flexShrink: 0 }} />
         </div>
 
@@ -229,6 +285,18 @@ export default function KanbanBoardPage() {
         )}
       </AnimatePresence>
 
+      {/* AI Suggest Tasks Modal */}
+      <AnimatePresence>
+        {showAiSuggest && (
+          <AiSuggestTasksModal
+            projectId={projectId}
+            onClose={() => setShowAiSuggest(false)}
+            onAddTask={(data) => createMutation.mutate({ ...data, status: 'backlog' })}
+            isCreating={createMutation.isPending}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Task Detail Modal */}
       <AnimatePresence>
         {selectedTask && (
@@ -245,7 +313,7 @@ export default function KanbanBoardPage() {
 }
 
 // ─── Kanban Column ─────────────────────────────────────────────────────────────
-function KanbanColumn({ column, tasks, onAddTask, onTaskClick, onComplete, onDelete }) {
+function KanbanColumn({ column, tasks, onAddTask, onTaskClick, onComplete, onDelete, projectId }) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
     data: { columnId: column.id },
@@ -285,6 +353,60 @@ function KanbanColumn({ column, tasks, onAddTask, onTaskClick, onComplete, onDel
           )}
         </div>
       </SortableContext>
+      <InlineTaskInput columnId={column.id} projectId={projectId} />
+    </div>
+  );
+}
+
+// ─── Inline Task Input ────────────────────────────────────────────────────────
+function InlineTaskInput({ columnId, projectId }) {
+  const [title, setTitle] = useState('');
+  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+
+  const handleCreate = async (taskData) => {
+    if (!taskData.title.trim()) return;
+    setLoading(true);
+    try {
+      await taskAPI.create(projectId, { ...taskData, status: columnId });
+      queryClient.invalidateQueries(['kanban-board', projectId]);
+      setTitle('');
+    } catch (error) {
+      toast.error('Failed to create task');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAiEnhance = async () => {
+    if (!title.trim()) return;
+    setLoading(true);
+    try {
+      const res = await aiAPI.enhanceTask({ title });
+      await handleCreate(res.data);
+      toast.success('Task enhanced and created!');
+    } catch (error) {
+      toast.error('AI enhance failed');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input
+        type="text"
+        placeholder="Quick add..."
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && handleCreate({ title })}
+        disabled={loading}
+        style={{ flex: 1, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '6px 10px', color: 'var(--text-primary)', fontSize: '0.8rem' }}
+      />
+      {title.trim() && (
+        <button onClick={handleAiEnhance} disabled={loading} className="btn btn-ghost btn-icon" style={{ color: '#8b5cf6', padding: 4 }} title="AI Auto-fill details">
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+        </button>
+      )}
     </div>
   );
 }
@@ -468,6 +590,21 @@ function TaskDetailModal({ task, projectId, board, onClose }) {
     }
   });
 
+  const aiBreakdownMutation = useMutation({
+    mutationFn: () => aiAPI.breakdownTask({ title: task.title, description: task.description }),
+    onSuccess: async (res) => {
+      if (res.data?.checklist) {
+        // Create subtasks sequentially
+        for (const item of res.data.checklist) {
+          await taskAPI.create(projectId, { title: item.title, parent_task: task._id, type: 'subtask', status: task.status });
+        }
+        queryClient.invalidateQueries(['kanban-board', projectId]);
+        toast.success('Task broken down by AI!');
+      }
+    },
+    onError: () => toast.error('Failed to break down task with AI')
+  });
+
   const allTasks = Object.values(board || {}).flat();
   const subtasks = allTasks.filter(t => t.parent_task === task._id);
 
@@ -488,7 +625,10 @@ function TaskDetailModal({ task, projectId, board, onClose }) {
             </div>
             <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.4 }}>{task.title}</h2>
           </div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button onClick={() => aiBreakdownMutation.mutate()} disabled={aiBreakdownMutation.isPending} className="btn btn-secondary btn-sm" style={{ color: '#8b5cf6', borderColor: 'rgba(139,92,246,0.3)', padding: '6px 10px' }}>
+              {aiBreakdownMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />} AI Breakdown
+            </button>
             {task.status !== 'completed' && (
               <button onClick={() => completeMutation.mutate()} disabled={completeMutation.isPending} className="btn btn-secondary btn-sm" style={{ color: '#10b981', borderColor: 'rgba(16,185,129,0.3)', padding: '6px 10px' }}>
                 {completeMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} Complete
@@ -577,6 +717,99 @@ function TaskDetailModal({ task, projectId, board, onClose }) {
             <button onClick={() => comment.trim() && commentMutation.mutate()} className="btn btn-primary btn-sm" disabled={!comment.trim()}>Post</button>
           </div>
         </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+// ─── AI Suggest Tasks Modal ───────────────────────────────────────────────────
+function AiSuggestTasksModal({ projectId, onClose, onAddTask, isCreating }) {
+  const [teamSize, setTeamSize] = useState(1);
+  const [suggestions, setSuggestions] = useState(null);
+
+  const suggestMutation = useMutation({
+    mutationFn: () => aiAPI.suggestTasks({ projectId, teamSize }),
+    onSuccess: (res) => {
+      setSuggestions(res.data.suggestions);
+    },
+    onError: () => toast.error('Failed to get AI suggestions')
+  });
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
+        style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 28, width: '100%', maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ padding: 8, background: 'rgba(99,102,241,0.15)', borderRadius: 8, color: '#818cf8' }}>
+              <Sparkles size={18} />
+            </div>
+            <h3 style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1.2rem' }}>AI Task Suggestions</h3>
+          </div>
+          <button onClick={onClose} className="btn btn-ghost btn-icon" style={{ color: 'var(--text-muted)' }}><X size={18} /></button>
+        </div>
+
+        {!suggestions ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              DevPilot AI will analyze your project description and existing backlog to suggest new, relevant tasks to keep your project moving forward.
+            </p>
+            <div>
+              <label className="label">Team Size (affects number of tasks)</label>
+              <input type="number" className="input" value={teamSize} onChange={e => setTeamSize(e.target.value)} min={1} max={50} />
+            </div>
+            <button 
+              onClick={() => suggestMutation.mutate()} 
+              disabled={suggestMutation.isPending} 
+              className="btn btn-primary" 
+              style={{ alignSelf: 'flex-start', marginTop: 10 }}
+            >
+              {suggestMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+              Generate Suggestions
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 8 }}>
+              AI has suggested {suggestions.length} tasks. Click 'Add to Backlog' for tasks you want to keep.
+            </p>
+            {suggestions.map((task, i) => (
+              <div key={i} style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <h4 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.95rem', marginBottom: 6 }}>{task.title}</h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 10 }}>{task.description}</p>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <span style={{ fontSize: '0.7rem', padding: '2px 8px', background: 'rgba(99,102,241,0.1)', color: '#818cf8', borderRadius: 4, textTransform: 'capitalize' }}>{task.type}</span>
+                      <span style={{ fontSize: '0.7rem', padding: '2px 8px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', borderRadius: 4, textTransform: 'capitalize' }}>{task.priority} Priority</span>
+                      {task.story_points && <span style={{ fontSize: '0.7rem', padding: '2px 8px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)', borderRadius: 4 }}>{task.story_points} pts</span>}
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      onAddTask(task);
+                      // Remove from list visually
+                      setSuggestions(s => s.filter((_, idx) => idx !== i));
+                    }} 
+                    disabled={isCreating}
+                    className="btn btn-secondary btn-sm" 
+                    style={{ flexShrink: 0, padding: '6px 12px' }}
+                  >
+                    {isCreating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Add to Backlog
+                  </button>
+                </div>
+              </div>
+            ))}
+            {suggestions.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)' }}>
+                No more suggestions.
+              </div>
+            )}
+          </div>
+        )}
       </motion.div>
     </motion.div>
   );

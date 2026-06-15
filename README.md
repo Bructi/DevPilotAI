@@ -1,7 +1,7 @@
 # DevPilot AI 🚀
 
 > **AI-Powered Software Development & Project Management Platform**
-> Built with React + Vite, Node.js + Express, MongoDB + MySQL, Python FastAPI + LangChain + Ollama (via Google Colab)
+> Built with React + Vite, Node.js + Express, MongoDB + MySQL, Python FastAPI + LangChain + Groq (Llama 3)
 
 ## Quick Start
 
@@ -11,8 +11,7 @@
 - Python 3.11+
 - MongoDB (running locally on port 27017)
 - XAMPP (for MySQL — start before the server for auth to work)
-- Google Colab Account (for offloading the AI Model)
-- Ngrok Account (for the AI Tunnel)
+- Groq API Key (for the Free AI Engine)
 
 ### 1. Install All Dependencies
 
@@ -26,134 +25,23 @@ pip install -r requirements.txt
 cd ..
 ```
 
-### 2. Set Up the AI Engine (Google Colab & Ngrok)
+### 2. Set Up the AI Engine (Groq)
 
-Since running Llama 3 locally requires heavy RAM, DevPilot AI offloads the AI inference to Google Colab's free GPUs using an Ngrok tunnel.
+DevPilot AI uses Groq to run LLaMA 3 instantly and for free.
 
-1. Go to [Ngrok](https://dashboard.ngrok.com/signup) and get a free Authtoken.
-2. Open a new **Google Colab Notebook**.
-3. Paste the following script and run it:
-
-```python
-import subprocess
-import time
-import os
-import shutil
-
-# =================================================================
-# 1. MOUNT GOOGLE DRIVE TO SAVE THE MODEL PERMANENTLY
-# =================================================================
-try:
-    from google.colab import drive
-    print("Mounting Google Drive to persist the model...")
-    drive.mount('/content/drive')
-    
-    # Create a folder in your Drive to store the model
-    models_dir = '/content/drive/MyDrive/ollama_models'
-    os.makedirs(models_dir, exist_ok=True)
-    
-    # Tell Ollama to save and load models from Google Drive!
-    os.environ["OLLAMA_MODELS"] = models_dir
-    print(f"Ollama models will be saved to/loaded from: {models_dir}")
-except ImportError:
-    print("Not running in Google Colab. Skipping Drive mount.")
-
-print("\nInstalling Ollama & pyngrok...")
-
-# Install zstd, a dependency for Ollama installation
-subprocess.run(["sudo", "apt-get", "install", "-y", "zstd"], capture_output=True, text=True)
-
-# Install Ollama
-install_command = "curl -fsSL https://ollama.com/install.sh | sh"
-install_result = subprocess.run(install_command, shell=True, capture_output=True, text=True)
-if install_result.returncode != 0:
-    raise RuntimeError("Ollama installation failed.")
-
-time.sleep(2)
-
-# Install pyngrok
-os.system("pip install -q pyngrok")
-
-print("\n\n========================================================")
-print("🚨 NGROK REQUIRES A FREE AUTHTOKEN")
-print("1. Go to https://dashboard.ngrok.com/tunnels/authtokens")
-print("2. Copy the token and paste it in the box below!")
-print("========================================================\n")
-
-ngrok_token = input("Paste your Ngrok Authtoken here: ")
-
-from pyngrok import ngrok, conf
-conf.get_default().auth_token = ngrok_token.strip()
-
-ollama_path = shutil.which("ollama") or "/usr/local/bin/ollama"
-
-print(f"\nStarting Ollama server...")
-global ollama_process
-env = os.environ.copy()
-env["OLLAMA_ORIGINS"] = "*"
-
-try:
-    # Start the background process
-    ollama_process = subprocess.Popen([ollama_path, "serve"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(5)
-    if ollama_process.poll() is not None:
-        raise RuntimeError("Ollama server failed to start.")
-    print("Ollama server started successfully.")
-except Exception as e:
-    raise
-
-# =================================================================
-# 2. PULL MODEL (WILL BE INSTANT IF ALREADY IN GOOGLE DRIVE)
-# =================================================================
-print("Checking for Llama3:8b model (Will download ONLY if it's not in your Google Drive)...")
-pull_command = f"{ollama_path} pull llama3:8b"
-pull_result = subprocess.run(pull_command, shell=True, capture_output=True, text=True)
-if pull_result.returncode != 0:
-    raise RuntimeError(f"Llama3:8b model pull failed: {pull_result.stderr}")
-else:
-    print("Llama3:8b model is ready!")
-
-print("Exposing port 11434 via Ngrok...")
-options = {"host_header": "localhost", "bind_tls": True}
-
-max_retries = 5
-for i in range(max_retries):
-    try:
-        public_url = ngrok.connect(11434, **options).public_url
-        print("Ngrok tunnel established.")
-        break
-    except Exception as e:
-        print(f"Attempt {i+1}/{max_retries}: Ngrok connection failed: {e}")
-        time.sleep(5)
-
-print("\n\n========================================================")
-print("✅ SUCCESS! YOUR PUBLIC AI URL IS:\n")
-print(f"{public_url}")
-print("\nCopy the URL above and paste it into your .env file!")
-print("========================================================\n")
-
-try:
-    while True:
-        time.sleep(3600)
-except KeyboardInterrupt:
-    print("Stopping server...")
-    if 'ollama_process' in globals() and ollama_process.poll() is None:
-        ollama_process.kill()
-    if 'ngrok' in globals() and ngrok.get_tunnels():
-        ngrok.kill()
-    print("Server stopped.")
-```
+1. Go to [Groq Console](https://console.groq.com/keys) and sign in.
+2. Create a new API Key.
 
 ### 3. Environment Variables
 
 Both `.env` files must be configured:
 
 - `server/.env` — MongoDB, MySQL (XAMPP), JWT, Google OAuth, Email, Backend Port (5000)
-- `ai-engine/.env` — Must point to your new Ngrok Tunnel URL:
+- `ai-engine/.env` — Must point to Groq's OpenAI-compatible endpoint:
   ```env
-  AI_API_KEY=ollama
-  AI_MODEL=llama3:8b
-  AI_BASE_URL=https://your-url.ngrok-free.app/v1
+  AI_API_KEY=gsk_your_groq_api_key_here
+  AI_MODEL=llama-3.1-8b-instant
+  AI_BASE_URL=https://api.groq.com/openai/v1
   ```
 
 ### 4. Setup MySQL (XAMPP)
@@ -195,7 +83,7 @@ cd client && npm run dev
 DevpilotAI/
 ├── client/          # React 19 + Vite 8 + Tailwind CSS 4 frontend
 │   ├── src/
-│   │   ├── pages/   # Application routes including Project Detail pages
+│   │   ├── pages/   # Application routes including Project & Team pages
 │   │   ├── services/# Axios API instances + Socket.IO real-time clients
 │   │   └── store/   # Zustand 5 state management
 ├── server/          # Node.js + Express 5 backend
@@ -220,16 +108,22 @@ DevpilotAI/
 | --------- | ------------------------------------------------------------------------------------------ |
 | Frontend  | React 19, Vite 8, Tailwind CSS 4, Framer Motion, React Query 5, Zustand 5, DnD Kit         |
 | Backend   | Node.js, Express 5, Socket.IO 4, JWT, Passport.js                                          |
-| Databases | MongoDB 9 (NoSQL) + MySQL 8 via Sequelize (SQL)                                            |
-| AI Engine | Python 3.11, FastAPI, LangChain 0.3, LangChain-OpenAI, Ollama (LLaMA 3:8b), pyngrok Tunnel |
+| Databases | MongoDB (NoSQL) + MySQL 8 via Sequelize (SQL)                                            |
+| AI Engine | Python 3.11, FastAPI, LangChain 0.3, LangChain-OpenAI, Groq (LLaMA 3 8B) |
 
 ## Features
 
 - ✅ **Authentication:** JWT + Google OAuth + MySQL Users
 - ✅ **Project Management:** Full CRUD, dynamic tracking
 - ✅ **Kanban Board:** Interactive Drag & Drop via `@dnd-kit`
-- ✅ **Real-time Engine:** Socket.IO integrated chat & presence
-- ✅ **AI Chat Assistant:** Local LLaMA 3 integration via Google Colab offloading
+- ✅ **AI Task Breakdown:** Instantly breaks complex tasks into actionable subtasks via AI
+- ✅ **Team Collaboration Workspace:** Complete split-pane workspace for managing multiple teams
+- ✅ **Team Access Control:** Send email invitations, requiring members to officially accept/reject via notifications
+- ✅ **Role Management:** Owner, Admin, and Member permissions
+- ✅ **Real-time Team Chat:** Dedicated Socket.IO-powered chat rooms per team
+- ✅ **Global Notification System:** Real-time bell notifications (invites, mentions, chat updates)
+- ✅ **AI Team Pulse:** Automatically generates a vibe-check/summary based on your team's description and members
+- ✅ **AI Chat Assistant:** Lightning-fast LLaMA 3 integration via Groq
 - ✅ **AI Document Generator:** Generates SRS, PRDs, READMEs natively
 - ✅ **AI Sprint Planner:** Auto-analyzes backlog into logical phases
 - ✅ **Dual Database Architecture:** High-performance MongoDB vs structured MySQL

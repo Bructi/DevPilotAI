@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
-const { AiConversation, Document, Sprint, ActivityLog } = require('../models/mongo/index');
+const { AiConversation, Document, Sprint, ActivityLog, Task, Project } = require('../models/mongo/index');
+const UserModel = require('../models/mysql/User.model');
 
 const AI_ENGINE_URL = process.env.AI_ENGINE_URL || 'http://localhost:8000';
 
@@ -204,6 +205,211 @@ router.post('/code/review', async (req, res) => {
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Code review failed' });
+  }
+});
+
+// ─── Task Suggestion ──────────────────────────────────────────────────────────
+router.post('/tasks/suggest', authenticate, async (req, res) => {
+  try {
+    const { projectId, teamSize } = req.body;
+    const project = await Project.findById(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    
+    const existingTasks = await Task.find({ project_id: projectId }).limit(50);
+    
+    const reqBody = {
+      project_name: project.name,
+      project_description: project.description,
+      existing_tasks: existingTasks.map(t => t.title),
+      team_size: teamSize || 1
+    };
+
+    const data = await proxyToAI('/tasks/suggest', reqBody);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Task suggestion failed' });
+  }
+});
+
+// ─── Project Planning ─────────────────────────────────────────────────────────
+router.post('/project/plan', authenticate, async (req, res) => {
+  try {
+    const data = await proxyToAI('/project/plan', req.body);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Project planning failed' });
+  }
+});
+
+// ─── Sprint Retrospective ─────────────────────────────────────────────────────
+router.post('/sprint/retrospective', authenticate, async (req, res) => {
+  try {
+    const { sprintId } = req.body;
+    let sprintName = req.body.sprint_name || 'Sprint';
+    let completedPoints = req.body.completed_points || 0;
+    let totalPoints = req.body.total_points || 0;
+    let tasksCompleted = req.body.tasks_completed || [];
+    let tasksMissed = req.body.tasks_missed || [];
+    let durationWeeks = req.body.duration_weeks || 2;
+
+    if (sprintId) {
+      const sprint = await Sprint.findById(sprintId);
+      if (sprint) {
+        sprintName = sprint.name;
+        completedPoints = sprint.completed_story_points;
+        totalPoints = sprint.total_story_points;
+        const start = new Date(sprint.start_date);
+        const end = new Date(sprint.end_date);
+        durationWeeks = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24 * 7)));
+
+        const tasks = await Task.find({ sprint_id: sprintId });
+        tasksCompleted = tasks.filter(t => t.status === 'completed').map(t => t.title);
+        tasksMissed = tasks.filter(t => t.status !== 'completed').map(t => t.title);
+      }
+    }
+
+    const data = await proxyToAI('/sprint/retrospective', {
+      sprint_name: sprintName,
+      completed_points: completedPoints,
+      total_points: totalPoints,
+      duration_weeks: durationWeeks,
+      tasks_completed: tasksCompleted,
+      tasks_missed: tasksMissed
+    });
+    
+    // Auto-save to sprint if sprintId provided
+    if (sprintId) {
+      await Sprint.findByIdAndUpdate(sprintId, {
+        'retrospective.action_items': data.retrospective.split('\n').filter(l => l.trim().startsWith('- ')),
+      });
+    }
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Sprint retrospective failed' });
+  }
+});
+
+// ─── GitHub Analysis ──────────────────────────────────────────────────────────
+router.post('/github/analyze', authenticate, async (req, res) => {
+  try {
+    const { repoFullName, projectId } = req.body;
+    const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+    
+    const user = await UserModel.findByPk(req.user.userId, { attributes: ['github_pat'] });
+    if (!user || !user.github_pat) {
+      return res.status(400).json({ error: 'GitHub is not connected' });
+    }
+
+    const headers = { 
+      Authorization: `Bearer ${user.github_pat}`, 
+      'User-Agent': 'DevPilot-AI', 
+      Accept: 'application/vnd.github+json' 
+    };
+
+    const [repoRes, commitsRes, issuesRes, prsRes] = await Promise.all([
+      fetch(`https://api.github.com/repos/${repoFullName}`, { headers }),
+      fetch(`https://api.github.com/repos/${repoFullName}/commits?per_page=5`, { headers }),
+      fetch(`https://api.github.com/repos/${repoFullName}/issues?state=open&per_page=5`, { headers }),
+      fetch(`https://api.github.com/repos/${repoFullName}/pulls?state=open&per_page=5`, { headers })
+    ]);
+
+    const repoInfo = repoRes.ok ? await repoRes.json() : {};
+    const commits = commitsRes.ok ? await commitsRes.json() : [];
+    const issues = issuesRes.ok ? await issuesRes.json() : [];
+    const prs = prsRes.ok ? await prsRes.json() : [];
+
+    // GitHub API returns PRs inside the issues endpoint, so we filter them out
+    const pureIssues = issues.filter(i => !i.pull_request);
+
+    const commitsText = Array.isArray(commits) ? commits.map(c => `- ${c.commit.message.split('\n')[0]} (by ${c.commit.author?.name || 'unknown'})`).join('\n') : '';
+    const issuesText = pureIssues.map(i => `- Issue #${i.number}: ${i.title} [${i.labels?.map(l => l.name).join(', ') || ''}]`).join('\n');
+    const prsText = prs.map(p => `- PR #${p.number}: ${p.title} (by ${p.user?.login || 'unknown'})`).join('\n');
+
+    const prompt = `Analyze this GitHub repository: **${repoFullName}**
+
+**Repository Information:**
+- Description: ${repoInfo.description || 'No description'}
+- Primary Language: ${repoInfo.language || 'Unknown'}
+- Stars: ${repoInfo.stargazers_count || 0}
+- Total Open Issues: ${repoInfo.open_issues_count || 0}
+- Last Updated: ${repoInfo.updated_at ? new Date(repoInfo.updated_at).toLocaleString() : 'Unknown'}
+
+**Recent Commits:**
+${commitsText || 'No recent commits.'}
+
+**Recent Open Issues:**
+${issuesText || 'No open issues.'}
+
+**Recent Open PRs:**
+${prsText || 'No open PRs.'}
+
+Based on this real data:
+1. Provide a brief health summary of the repository.
+2. Analyze recent commit activity to understand what is currently being worked on.
+3. Suggest 3-5 specific, actionable tasks the team should focus on next (based on issues, PRs, or logical next steps from commits).
+Format the output in clean Markdown.`;
+
+    const data = await proxyToAI('/chat', {
+      messages: [{ role: 'user', content: prompt }],
+      context_type: 'analysis'
+    });
+
+    res.json({ analysis: data.content || data.reply });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'GitHub analysis failed' });
+  }
+});
+
+// ─── Smart Sprint Planning ────────────────────────────────────────────────────
+router.post('/sprint/smart-plan', authenticate, async (req, res) => {
+  try {
+    const { projectId, teamSize, durationWeeks } = req.body;
+    
+    // Fetch project and backlog tasks
+    const project = await Project.findById(projectId);
+    const backlogTasks = await Task.find({ project_id: projectId, status: { $in: ['backlog', 'todo'] } })
+      .sort({ priority: -1 })
+      .limit(30);
+      
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const tasksList = backlogTasks.map(t => `- [${t.priority.toUpperCase()}] ${t.title} (Est: ${t.story_points || '?'})`).join('\n');
+
+    const reqBody = {
+      project_name: project.name,
+      project_description: project.description,
+      duration_weeks: durationWeeks || 2,
+      team_size: teamSize || 1,
+      velocity: 0,
+      tasks: tasksList
+    };
+
+    const data = await proxyToAI('/sprint/plan', reqBody);
+    
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Smart sprint planning failed' });
+  }
+});
+
+// ─── Task Enhance ─────────────────────────────────────────────────────────────
+router.post('/tasks/enhance', authenticate, async (req, res) => {
+  try {
+    const data = await proxyToAI('/tasks/enhance', { title: req.body.title });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Task enhance failed' });
+  }
+});
+
+// ─── Task Breakdown ───────────────────────────────────────────────────────────
+router.post('/tasks/breakdown', authenticate, async (req, res) => {
+  try {
+    const data = await proxyToAI('/tasks/generate-subtasks', { title: req.body.title, description: req.body.description });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Task breakdown failed' });
   }
 });
 
