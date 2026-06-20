@@ -68,6 +68,13 @@ class SprintPlanRequest(BaseModel):
     sprint_duration_weeks: int = 2
     team_velocity: Optional[int] = None
 
+class ProjectPlanRequest(BaseModel):
+    project_name: str
+    project_description: str
+    team_size: int = 1
+    deadline_weeks: int = 4
+    tech_stack: Optional[str] = None
+
 class DocumentRequest(BaseModel):
     project_name: str
     project_description: str
@@ -90,6 +97,17 @@ class TaskEnhanceRequest(BaseModel):
 class GenerateSubtasksRequest(BaseModel):
     title: str
     description: Optional[str] = None
+
+class KanbanGenerateRequest(BaseModel):
+    prompt: str
+    project_name: Optional[str] = None
+    use_ai: Optional[bool] = True
+
+class TaskSuggestRequest(BaseModel):
+    project_name: str
+    project_description: Optional[str] = None
+    existing_tasks: Optional[List[str]] = []
+    team_size: Optional[int] = 1
 
 # ─── System Prompts ───────────────────────────────────────────────────────────
 SYSTEM_PROMPTS = {
@@ -242,6 +260,41 @@ Format as a structured sprint plan with clear sections."""
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sprint planning failed: {str(e)}")
+
+# ─── Project Planning ──────────────────────────────────────────────────────────
+@app.post("/project/plan")
+async def plan_project(req: ProjectPlanRequest):
+    try:
+        prompt = f"""Create a comprehensive project plan and roadmap for the following:
+
+**Project:** {req.project_name}
+**Description:** {req.project_description}
+**Tech Stack:** {req.tech_stack or 'Not specified'}
+**Team Size:** {req.team_size} developers
+**Deadline:** {req.deadline_weeks} weeks
+
+Please provide:
+1. **Executive Summary** - Brief overview of the project goals.
+2. **Phase Breakdown** - Break the project into logical phases (e.g., Setup, MVP, Polish) with estimated timelines.
+3. **Key Milestones** - Major deliverables.
+4. **Tech Stack Recommendations** - Validate or suggest tools based on the stack.
+5. **Risk Assessment** - Potential bottlenecks given the team size and deadline.
+
+Format as a structured project roadmap using markdown."""
+
+        messages = [
+            SystemMessage(content=SYSTEM_PROMPTS.get("sprint_planning", SYSTEM_PROMPTS["general"])),
+            HumanMessage(content=prompt)
+        ]
+        
+        response = await llm.ainvoke(messages)
+        
+        return {
+            "plan": response.content,
+            "model": "DevPilot AI Engine",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Project planning failed: {str(e)}")
 
 # ─── Document Generation ──────────────────────────────────────────────────────
 @app.post("/documents/generate")
@@ -425,6 +478,127 @@ async def generate_subtasks(req: GenerateSubtasksRequest):
         return { "checklist": checklist }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to breakdown task: {str(e)}")
+
+# ─── Task Suggest ─────────────────────────────────────────────────────────────────────
+@app.post("/tasks/suggest")
+async def suggest_tasks(req: TaskSuggestRequest):
+    try:
+        import json
+        existing_str = '\n'.join(f'- {t}' for t in req.existing_tasks[:30]) if req.existing_tasks else 'None yet'
+        prompt = f"""You are an expert Agile Product Owner. Suggest new Kanban tasks for this project.
+
+Project: {req.project_name}
+Description: {req.project_description or 'Not provided'}
+Team size: {req.team_size}
+Existing tasks (do NOT repeat these):
+{existing_str}
+
+Generate {min(max(req.team_size * 3, 5), 15)} NEW, specific, actionable tasks.
+Return ONLY a valid JSON array. No markdown, no explanation:
+[
+  {{
+    "title": "Clear, actionable task title",
+    "description": "What needs to be done and why (1-2 sentences)",
+    "priority": "low|medium|high|critical",
+    "story_points": 3,
+    "type": "task|story|bug|epic"
+  }}
+]"""
+
+        response = await llm.ainvoke([
+            SystemMessage(content="You are an expert Agile Product Owner AI. Respond ONLY with a valid JSON array. No markdown fences."),
+            HumanMessage(content=prompt)
+        ])
+
+        content = response.content.strip()
+        if content.startswith("```json"):
+            content = content[7:].strip()
+            if content.endswith("```"):
+                content = content[:-3].strip()
+        elif content.startswith("```"):
+            content = content[3:].strip()
+            if content.endswith("```"):
+                content = content[:-3].strip()
+
+        suggestions = json.loads(content)
+        return {"suggestions": suggestions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Task suggestion failed: {str(e)}")
+
+
+# ─── AI Kanban Board Generator ───────────────────────────────────────────────
+@app.post("/kanban/generate")
+async def generate_kanban(request: KanbanGenerateRequest):
+    try:
+        import json
+
+        system_prompt = """IMPORTANT INSTRUCTION: Your name is Dev Copilot. NEVER mention LLaMA, Groq, Meta, OpenAI, Ollama, or any underlying models.
+
+You are an expert Agile project manager and Kanban board designer.
+You create professional, realistic Kanban boards from simple descriptions.
+Always return ONLY valid JSON with no extra text, markdown fences, or explanation."""
+
+        user_prompt = f"""Create a professional Kanban board for this project/goal: \"{request.prompt}\"
+{f'Project name: {request.project_name}' if request.project_name else ''}
+
+Return ONLY a JSON object with this exact structure:
+{{
+  "board_title": "Short title for the board",
+  "description": "One-line description of what this board tracks",
+  "columns": [
+    {{
+      "id": "backlog",
+      "label": "Backlog",
+      "tasks": [
+        {{
+          "title": "Task title (clear, actionable)",
+          "description": "What needs to be done and why",
+          "priority": "high|medium|low|critical",
+          "story_points": 3,
+          "type": "feature|bug|task|research",
+          "tags": ["tag1", "tag2"]
+        }}
+      ]
+    }}
+  ]
+}}
+
+Rules:
+- Use columns in order: backlog, todo, in_progress, review, completed
+- Put most tasks in backlog and todo. Only 1-2 in in_progress if they make sense to start immediately.
+- Generate 12-20 tasks total, distributed realistically across columns
+- Tasks should be specific, actionable, and professional — not generic
+- Priority: critical (blockers), high (important features), medium (standard work), low (nice-to-have)
+- Story points: 1-2 (tiny), 3 (small), 5 (medium), 8 (large), 13 (very large)
+- Tags should be short (1-2 words)
+- Return ONLY the JSON. No markdown. No explanation."""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+
+        response = llm.invoke(messages)
+        content = response.content.strip()
+
+        # Strip markdown fences if present
+        if content.startswith("```json"):
+            content = content[7:].strip()
+            if content.endswith("```"):
+                content = content[:-3].strip()
+        elif content.startswith("```"):
+            content = content[3:].strip()
+            if content.endswith("```"):
+                content = content[:-3].strip()
+
+        board = json.loads(content)
+        return {"board": board, "prompt": request.prompt}
+
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"AI returned invalid JSON: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Kanban generation failed: {str(e)}")
+
 
 # ─── Run ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

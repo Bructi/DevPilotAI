@@ -9,7 +9,7 @@ const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 
-const { connectMongoDB, connectMySQL } = require('./src/config/db');
+const { connectMongoDB, connectSQL } = require('./src/config/db');
 const { initSocketHandlers } = require('./src/sockets/socketHandlers');
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   await connectMongoDB();
-  await connectMySQL();
+  await connectSQL();
 
   server.listen(PORT, () => {
     console.log(`\n🚀 DevPilot AI Server running on http://localhost:${PORT}`);

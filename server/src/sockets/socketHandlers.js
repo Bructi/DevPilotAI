@@ -37,6 +37,30 @@ const initSocketHandlers = (io) => {
 
     socket.on('team:leave', ({ teamId }) => {
       socket.leave(`team:${teamId}:chat`);
+      socket.leave(`team:${teamId}:whiteboard`);
+    });
+
+    // ─── Team Whiteboard ───────────────────────────────────────────────────
+    socket.on('team:whiteboard:join', ({ teamId }) => {
+      socket.join(`team:${teamId}:whiteboard`);
+      socket.whiteboardTeamId = teamId;
+      const room = io.sockets.adapter.rooms.get(`team:${teamId}:whiteboard`);
+      io.to(`team:${teamId}:whiteboard`).emit('team:whiteboard:online', { count: room ? room.size : 0 });
+    });
+
+    socket.on('team:whiteboard:leave', ({ teamId }) => {
+      socket.leave(`team:${teamId}:whiteboard`);
+      if (socket.whiteboardTeamId === teamId) socket.whiteboardTeamId = null;
+      const room = io.sockets.adapter.rooms.get(`team:${teamId}:whiteboard`);
+      io.to(`team:${teamId}:whiteboard`).emit('team:whiteboard:online', { count: room ? room.size : 0 });
+    });
+
+    socket.on('team:whiteboard:update', ({ teamId, elements, appState }) => {
+      // Broadcast to others in the room
+      socket.to(`team:${teamId}:whiteboard`).emit('team:whiteboard:update', {
+        elements,
+        appState,
+      });
     });
 
     // ─── Real-Time Chat ────────────────────────────────────────────────────
@@ -107,6 +131,15 @@ const initSocketHandlers = (io) => {
     });
 
     // ─── Disconnect ────────────────────────────────────────────────────────
+    socket.on('disconnecting', () => {
+      if (socket.whiteboardTeamId) {
+        const teamId = socket.whiteboardTeamId;
+        const room = io.sockets.adapter.rooms.get(`team:${teamId}:whiteboard`);
+        const count = room ? Math.max(0, room.size - 1) : 0;
+        socket.to(`team:${teamId}:whiteboard`).emit('team:whiteboard:online', { count });
+      }
+    });
+
     socket.on('disconnect', () => {
       if (socket.userId) {
         connectedUsers.delete(socket.userId);

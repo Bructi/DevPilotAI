@@ -108,6 +108,13 @@ const documentSchema = new mongoose.Schema({
   is_deleted: { type: Boolean, default: false },
 }, { timestamps: true });
 
+// Team Whiteboard (Excalidraw elements)
+const teamWhiteboardSchema = new mongoose.Schema({
+  team_id: { type: String, required: true, index: true, unique: true },
+  elements: { type: mongoose.Schema.Types.Mixed, default: [] }, // Excalidraw elements array
+  appState: { type: mongoose.Schema.Types.Mixed, default: {} }, // ViewState, scroll etc.
+}, { timestamps: true });
+
 module.exports = {
   Sprint: mongoose.model('Sprint', sprintSchema),
   ChatMessage: mongoose.model('ChatMessage', chatMessageSchema),
@@ -115,4 +122,5 @@ module.exports = {
   ActivityLog: mongoose.model('ActivityLog', activityLogSchema),
   AiConversation: mongoose.model('AiConversation', aiConversationSchema),
   Document: mongoose.model('Document', documentSchema),
+  TeamWhiteboard: mongoose.model('TeamWhiteboard', teamWhiteboardSchema),
 };

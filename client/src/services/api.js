@@ -88,6 +88,8 @@ export const teamAPI = {
   respondInvite: (teamId, data) => api.post(`/teams/${teamId}/invites/respond`, data),
   getChat: (teamId, params) => api.get(`/teams/${teamId}/chat`, { params }),
   sendMessage: (teamId, data) => api.post(`/teams/${teamId}/chat`, data),
+  getWhiteboard: (teamId) => api.get(`/teams/${teamId}/whiteboard`),
+  updateWhiteboard: (teamId, data) => api.put(`/teams/${teamId}/whiteboard`, data),
 };
 
 export const projectAPI = {
@@ -101,7 +103,9 @@ export const projectAPI = {
   addMember: (id, data) => api.post(`/projects/${id}/members`, data),
   removeMember: (id, userId) => api.delete(`/projects/${id}/members/${userId}`),
   getActivity: (id) => api.get(`/projects/${id}/activity`),
+  importFromGitHub: (full_name) => api.post('/projects/import-github', { full_name }),
 };
+
 
 export const taskAPI = {
   getAll: (projectId, params) => api.get(`/projects/${projectId}/tasks`, { params }),
@@ -170,6 +174,8 @@ export const aiAPI = {
   breakdownTask: (data) => api.post('/ai/tasks/breakdown', data),
   enhanceTask: (data) => api.post('/ai/tasks/enhance', data),
   reviewCode: (data) => api.post('/ai/code/review', data),
+  generateKanban: (data) => api.post('/ai/kanban/generate', data),
   health: () => api.get('/ai/health'),
+
 };
 

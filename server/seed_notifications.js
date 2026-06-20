@@ -1,11 +1,11 @@
 require('dotenv').config();
-const { connectMongoDB, connectMySQL } = require('./src/config/db');
+const { connectMongoDB, connectSQL } = require('./src/config/db');
 const { Notification } = require('./src/models/mongo/index');
-const User = require('./src/models/mysql/User.model');
+const User = require('./src/models/sqlite/User.model');
 
 async function seed() {
   await connectMongoDB();
-  await connectMySQL();
+  await connectSQL();
   
   const user = await User.findOne();
   if (!user) {

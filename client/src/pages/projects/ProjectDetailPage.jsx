@@ -112,7 +112,9 @@ export default function ProjectDetailPage() {
             </div>
             <div>
               <h1 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>{data.name}</h1>
-              <p style={{ color: 'var(--text-secondary)', marginBottom: 10, maxWidth: 600 }}>{data.description || data.short_description || 'No description'}</p>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: 10, maxWidth: 800, maxHeight: 150, overflowY: 'auto', whiteSpace: 'pre-wrap', paddingRight: 8, fontSize: '0.9rem', lineHeight: 1.5 }}>
+                {data.description || data.short_description || 'No description'}
+              </p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '3px 12px', borderRadius: 99, background: `${statusColor}20`, color: statusColor, border: `1px solid ${statusColor}30`, textTransform: 'capitalize' }}>
                   {data.status}
@@ -214,7 +216,7 @@ export default function ProjectDetailPage() {
         <div style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 18, padding: 24 }}>
           <h3 style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16, fontSize: '0.95rem' }}>Milestones</h3>
           {data.milestones?.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 300, overflowY: 'auto', paddingRight: 8 }}>
               {data.milestones.map((m, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--bg-glass)', borderRadius: 10 }}>
                   <CheckCircle2 size={16} style={{ color: m.is_completed ? '#10b981' : '#475569', flexShrink: 0 }} />

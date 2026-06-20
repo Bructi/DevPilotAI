@@ -12,7 +12,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, X, Loader2, GripVertical, Calendar, User, Flag,
-  MessageSquare, Paperclip, CheckSquare, Clock, AlertTriangle, Sparkles, ArrowLeft, Trash2, CheckCircle2, Search, Zap, Wand2
+  MessageSquare, Paperclip, CheckSquare, Clock, AlertTriangle, Sparkles, ArrowLeft, Trash2, CheckCircle2, Search, Zap, Wand2, BrainCircuit
 } from 'lucide-react';
 import { taskAPI, aiAPI } from '../../services/api';
 import { useAuthStore } from '../../store';
@@ -44,6 +44,7 @@ export default function KanbanBoardPage() {
   const [activeTask, setActiveTask] = useState(null);
   const [showAddTask, setShowAddTask] = useState(null);
   const [showAiSuggest, setShowAiSuggest] = useState(false);
+  const [showAiKanban, setShowAiKanban] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   
   // Search and Filter State
@@ -211,6 +212,9 @@ export default function KanbanBoardPage() {
             <button className="btn btn-secondary btn-sm" onClick={() => setShowAiSuggest(true)} style={{ gap: 6 }}>
               <Sparkles size={13} /> AI Suggestions
             </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowAiKanban(true)} style={{ gap: 6, background: 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(168,85,247,0.18))', border: '1px solid rgba(168,85,247,0.35)', color: '#c084fc' }}>
+              <BrainCircuit size={13} /> AI Generate Board
+            </button>
             <button className="btn btn-primary btn-sm" onClick={() => setShowAddTask('backlog')} style={{ gap: 6 }}>
               <Plus size={14} /> Add Task
             </button>
@@ -243,7 +247,7 @@ export default function KanbanBoardPage() {
 
       {/* Board */}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 16, paddingRight: 24, minHeight: 600 }}>
+        <div style={{ display: 'flex', flex: 1, gap: 14, overflowX: 'auto', paddingBottom: 16, paddingRight: 24, minHeight: 400 }}>
           {COLUMNS.map(col => {
             // Apply Filters
             const filteredTasks = (board[col.id] || []).filter(t => {
@@ -293,6 +297,20 @@ export default function KanbanBoardPage() {
             onClose={() => setShowAiSuggest(false)}
             onAddTask={(data) => createMutation.mutate({ ...data, status: 'backlog' })}
             isCreating={createMutation.isPending}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* AI Generate Board Modal */}
+      <AnimatePresence>
+        {showAiKanban && (
+          <AiKanbanModal
+            projectId={projectId}
+            onClose={() => setShowAiKanban(false)}
+            onSuccess={() => {
+              queryClient.invalidateQueries(['kanban-board', projectId]);
+              setShowAiKanban(false);
+            }}
           />
         )}
       </AnimatePresence>
@@ -810,6 +828,301 @@ function AiSuggestTasksModal({ projectId, onClose, onAddTask, isCreating }) {
             )}
           </div>
         )}
+      </motion.div>
+    </motion.div>
+  );
+}
+// ─── AI Kanban Generator Modal ────────────────────────────────────────────────
+function AiKanbanModal({ projectId, onClose, onSuccess }) {
+  const [prompt, setPrompt] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [step, setStep] = useState('input'); // 'input' | 'preview'
+  const [generating, setGenerating] = useState(false);
+  const [committing, setCommitting] = useState(false);
+
+  const COLUMN_COLORS = {
+    backlog: 'var(--text-muted)',
+    todo: '#3b82f6',
+    in_progress: '#f59e0b',
+    review: '#8b5cf6',
+    testing: '#06b6d4',
+    completed: '#10b981',
+  };
+  const PRIORITY_BADGE = {
+    critical: { bg: 'rgba(239,68,68,0.12)', color: '#ef4444' },
+    high: { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b' },
+    medium: { bg: 'rgba(99,102,241,0.12)', color: '#818cf8' },
+    low: { bg: 'rgba(16,185,129,0.12)', color: '#10b981' },
+  };
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
+    setGenerating(true);
+    try {
+      const res = await aiAPI.generateKanban({ prompt, projectId });
+      setPreview(res.data);
+      setStep('preview');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'AI generation failed');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleCommit = async () => {
+    if (!preview) return;
+    // If preview already committed tasks (because projectId was sent), just close
+    if (preview.tasks_created !== undefined) {
+      toast.success(`✨ Board generated! ${preview.tasks_created} tasks added.`);
+      onSuccess();
+      return;
+    }
+    // Fallback: commit manually (shouldn't happen with projectId)
+    setCommitting(true);
+    try {
+      const res = await aiAPI.generateKanban({ prompt, projectId });
+      toast.success(`✨ ${res.data.tasks_created} tasks added to your board!`);
+      onSuccess();
+    } catch (err) {
+      toast.error('Failed to add tasks');
+    } finally {
+      setCommitting(false);
+    }
+  };
+
+  const totalTasks = preview?.board?.columns?.reduce((acc, col) => acc + (col.tasks?.length || 0), 0) || 0;
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(10px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <motion.div initial={{ scale: 0.93, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.93, opacity: 0 }} transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid rgba(168,85,247,0.25)',
+          borderRadius: 24,
+          width: '100%',
+          maxWidth: step === 'preview' ? 880 : 560,
+          maxHeight: '90vh',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          transition: 'max-width 0.35s cubic-bezier(0.4,0,0.2,1)',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '24px 28px 20px',
+          borderBottom: '1px solid rgba(168,85,247,0.15)',
+          background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(168,85,247,0.08))',
+          flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 16px rgba(99,102,241,0.4)',
+              }}>
+                <BrainCircuit size={22} color="#fff" />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 2 }}>
+                  AI Board Generator
+                </h2>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  {step === 'input' ? 'Describe your project and AI will build a professional Kanban board' : `Preview · ${totalTasks} tasks across ${preview?.board?.columns?.length || 0} columns`}
+                </p>
+              </div>
+            </div>
+            <button onClick={onClose} className="btn btn-ghost btn-icon" style={{ color: 'var(--text-muted)' }}><X size={18} /></button>
+          </div>
+
+          {step === 'preview' && (
+            <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, padding: '10px 14px', background: 'rgba(168,85,247,0.08)', borderRadius: 10, border: '1px solid rgba(168,85,247,0.2)' }}>
+                <p style={{ fontSize: '0.75rem', color: '#c084fc', fontWeight: 600, marginBottom: 2 }}>Your prompt</p>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{prompt}</p>
+              </div>
+              <button onClick={() => { setStep('input'); setPreview(null); }}
+                className="btn btn-secondary btn-sm" style={{ flexShrink: 0, gap: 6, fontSize: '0.78rem' }}>
+                <Wand2 size={13} /> Try Again
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+          {step === 'input' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Example prompts */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quick examples</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {[
+                    'Build an e-commerce mobile app',
+                    'Launch a SaaS product MVP',
+                    'Migrate monolith to microservices',
+                    'Build a real-time dashboard',
+                  ].map(ex => (
+                    <button key={ex} onClick={() => setPrompt(ex)}
+                      style={{
+                        padding: '5px 12px', borderRadius: 20, fontSize: '0.75rem',
+                        background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
+                        color: '#a5b4fc', cursor: 'pointer', transition: 'all 0.15s',
+                        fontWeight: 500,
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.2)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.08)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.2)'; }}
+                    >{ex}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label className="label">Describe your project or goal</label>
+                <textarea
+                  value={prompt}
+                  onChange={e => setPrompt(e.target.value)}
+                  placeholder="e.g. Build a food delivery app with real-time order tracking, driver management, restaurant dashboard, and customer reviews..."
+                  autoFocus
+                  rows={5}
+                  onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) handleGenerate(); }}
+                  style={{
+                    resize: 'vertical', minHeight: 120,
+                    padding: '12px 16px', borderRadius: 12,
+                    background: 'rgba(0,0,0,0.2)',
+                    border: '1px solid rgba(168,85,247,0.25)',
+                    color: 'var(--text-primary)', fontSize: '0.9rem', lineHeight: 1.6,
+                    outline: 'none',
+                    transition: 'border-color 0.2s',
+                  }}
+                  onFocus={e => e.target.style.borderColor = 'rgba(168,85,247,0.6)'}
+                  onBlur={e => e.target.style.borderColor = 'rgba(168,85,247,0.25)'}
+                />
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Tip: Be specific — mention features, tech stack, team size. Press Ctrl+Enter to generate.</p>
+              </div>
+
+              <div style={{
+                padding: '14px 16px',
+                background: 'rgba(99,102,241,0.06)',
+                border: '1px solid rgba(99,102,241,0.15)',
+                borderRadius: 12,
+                display: 'flex', gap: 12, alignItems: 'flex-start',
+              }}>
+                <BrainCircuit size={20} style={{ color: '#818cf8', flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  <p style={{ fontSize: '0.82rem', fontWeight: 600, color: '#a5b4fc', marginBottom: 4 }}>What AI will generate</p>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                    12–20 professional tasks across Backlog, To Do, In Progress, Review, and Completed columns — each with title, description, priority, story points, type, and tags. All tasks will be created in your project immediately.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            // Preview grid
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {preview?.board?.description && (
+                <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', fontStyle: 'italic', borderLeft: '3px solid rgba(168,85,247,0.5)', paddingLeft: 12 }}>
+                  {preview.board.description}
+                </p>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {(preview?.board?.columns || []).filter(col => (col.tasks?.length || 0) > 0).map(col => {
+                  const colColor = COLUMN_COLORS[col.id] || '#6366f1';
+                  return (
+                    <div key={col.id}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <div style={{ width: 9, height: 9, borderRadius: '50%', background: colColor }} />
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{col.label || col.id.replace('_', ' ')}</span>
+                        <span style={{ fontSize: '0.7rem', padding: '1px 8px', borderRadius: 99, background: `${colColor}18`, color: colColor, fontWeight: 600 }}>{col.tasks?.length}</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+                        {(col.tasks || []).map((task, i) => {
+                          const pr = PRIORITY_BADGE[task.priority] || PRIORITY_BADGE.medium;
+                          return (
+                            <div key={i} style={{
+                              background: 'rgba(255,255,255,0.035)',
+                              border: '1px solid rgba(255,255,255,0.07)',
+                              borderRadius: 12, padding: '12px 14px',
+                              display: 'flex', flexDirection: 'column', gap: 8,
+                            }}>
+                              <p style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.4 }}>{task.title}</p>
+                              {task.description && (
+                                <p style={{ fontSize: '0.73rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{task.description}</p>
+                              )}
+                              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 'auto' }}>
+                                <span style={{ fontSize: '0.65rem', padding: '2px 7px', borderRadius: 20, background: pr.bg, color: pr.color, fontWeight: 600 }}>{task.priority}</span>
+                                {task.story_points && <span style={{ fontSize: '0.65rem', padding: '2px 7px', borderRadius: 20, background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>{task.story_points}pt</span>}
+                                {task.type && <span style={{ fontSize: '0.65rem', padding: '2px 7px', borderRadius: 20, background: 'rgba(99,102,241,0.1)', color: '#818cf8' }}>{task.type}</span>}
+                                {(task.tags || []).slice(0, 2).map(tag => (
+                                  <span key={tag} style={{ fontSize: '0.62rem', padding: '2px 6px', borderRadius: 20, background: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.07)' }}>{tag}</span>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '16px 28px',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          display: 'flex', justifyContent: 'flex-end', gap: 10,
+          background: 'rgba(0,0,0,0.1)',
+          flexShrink: 0,
+        }}>
+          {step === 'input' ? (
+            <>
+              <button onClick={onClose} className="btn btn-secondary">Cancel</button>
+              <button
+                onClick={handleGenerate}
+                disabled={!prompt.trim() || generating}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 22px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: '0.88rem',
+                  background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+                  border: 'none', color: '#fff',
+                  boxShadow: generating ? 'none' : '0 4px 20px rgba(99,102,241,0.4)',
+                  opacity: !prompt.trim() || generating ? 0.6 : 1,
+                  transition: 'all 0.2s',
+                }}
+              >
+                {generating ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Generating…</> : <><BrainCircuit size={16} /> Generate Board</>}
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={onClose} className="btn btn-secondary">Discard</button>
+              <button
+                onClick={handleCommit}
+                disabled={committing}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 22px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: '0.88rem',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  border: 'none', color: '#fff',
+                  boxShadow: '0 4px 20px rgba(16,185,129,0.35)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {committing ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Adding…</> : <><CheckCircle2 size={16} /> Apply to Board ({totalTasks} tasks)</>}
+              </button>
+            </>
+          )}
+        </div>
+
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </motion.div>
     </motion.div>
   );

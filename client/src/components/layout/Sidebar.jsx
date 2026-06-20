@@ -73,7 +73,15 @@ export default function Sidebar() {
   return (
     <aside style={sidebarStyle}>
       {/* Logo */}
-      <div style={{ padding: '20px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ 
+        padding: sidebarCollapsed ? '20px 0' : '20px 16px', 
+        borderBottom: '1px solid var(--border-color)', 
+        display: 'flex', 
+        flexDirection: sidebarCollapsed ? 'column' : 'row',
+        alignItems: 'center', 
+        justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+        gap: sidebarCollapsed ? 16 : 0
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 0 20px rgba(99,102,241,0.3)' }}>
             <Rocket size={18} color="white" />

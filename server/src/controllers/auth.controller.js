@@ -1,8 +1,8 @@
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
-const User = require('../models/mysql/User.model');
-const { Session, PasswordReset } = require('../models/mysql/index');
+const User = require('../models/sqlite/User.model');
+const { Session, PasswordReset } = require('../models/sqlite/index');
 const { ActivityLog } = require('../models/mongo/index');
 const { sendEmail } = require('../utils/email.service');
 

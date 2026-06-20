@@ -1,7 +1,7 @@
 # DevPilot AI 🚀
 
 > **AI-Powered Software Development & Project Management Platform**
-> Built with React + Vite, Node.js + Express, MongoDB + MySQL, Python FastAPI + LangChain + Groq (Llama 3)
+> Built with React 19 + Vite 8, Node.js + Express 5, MongoDB + SQLite, Python FastAPI + LangChain + Groq (Llama 3)
 
 ## Quick Start
 
@@ -10,8 +10,9 @@
 - Node.js 18+
 - Python 3.11+
 - MongoDB (running locally on port 27017)
-- XAMPP (for MySQL — start before the server for auth to work)
 - Groq API Key (for the Free AI Engine)
+
+> **No XAMPP or MySQL required!** We recently migrated to SQLite for seamless local authentication out-of-the-box.
 
 ### 1. Install All Dependencies
 
@@ -36,7 +37,7 @@ DevPilot AI uses Groq to run LLaMA 3 instantly and for free.
 
 Both `.env` files must be configured:
 
-- `server/.env` — MongoDB, MySQL (XAMPP), JWT, Google OAuth, Email, Backend Port (5000)
+- `server/.env` — MongoDB URI, JWT Secret, Google OAuth, Email, Backend Port (5000)
 - `ai-engine/.env` — Must point to Groq's OpenAI-compatible endpoint:
   ```env
   AI_API_KEY=gsk_your_groq_api_key_here
@@ -44,12 +45,17 @@ Both `.env` files must be configured:
   AI_BASE_URL=https://api.groq.com/openai/v1
   ```
 
-### 4. Setup MySQL (XAMPP)
+### 4. Database Setup
 
-1. Open **XAMPP Control Panel** → Start **Apache** and **MySQL**
-2. Go to `http://localhost/phpmyadmin`
-3. Create a new database named `devpilot_ai`
-4. Tables are auto-created on first server startup
+DevPilot AI uses **SQLite** for Authentication & Roles, and **MongoDB** for Projects & AI Data.
+The SQLite database automatically creates itself (`devpilot_ai.sqlite`) on server startup.
+
+**To load the initial MongoDB project data:**
+```bash
+cd server
+npm run db:import
+```
+*(This loads all projects, tasks, and conversations from `mongo_data.json` into your local MongoDB. To save new data before committing to GitHub, run `npm run db:export`)*
 
 ### 5. Start Development Servers
 
@@ -57,7 +63,7 @@ Both `.env` files must be configured:
 
 ```bash
 # Terminal 1 - Backend Server (Port 5000)
-cd server && npx nodemon server.js
+cd server && npm run dev
 
 # Terminal 2 - AI Engine (Port 8000)
 cd ai-engine && python main.py
@@ -87,8 +93,9 @@ DevpilotAI/
 │   │   ├── services/# Axios API instances + Socket.IO real-time clients
 │   │   └── store/   # Zustand 5 state management
 ├── server/          # Node.js + Express 5 backend
+│   ├── scripts/     # DB Sync scripts (export-db.js, import-db.js)
 │   ├── src/
-│   │   ├── config/  # Dual-DB connections (MongoDB Mongoose + MySQL Sequelize)
+│   │   ├── config/  # Dual-DB connections (MongoDB Mongoose + SQLite Sequelize)
 │   │   ├── controllers/
 │   │   ├── middleware/
 │   │   ├── models/  # Unified Mongoose & Sequelize schemas
@@ -97,34 +104,34 @@ DevpilotAI/
 │   └── server.js
 ├── ai-engine/       # Python FastAPI Backend
 │   ├── main.py      # LangChain + OpenAI-compatible wrapper endpoints
-│   ├── .env         # Ngrok Tunnel config
+│   ├── .env         # API config
 │   └── requirements.txt
-└── database/        # MySQL Database bootstrap scripts
+└── database/        # Database bootstrap scripts
 ```
 
 ## Tech Stack
 
 | Layer     | Technologies                                                                               |
 | --------- | ------------------------------------------------------------------------------------------ |
-| Frontend  | React 19, Vite 8, Tailwind CSS 4, Framer Motion, React Query 5, Zustand 5, DnD Kit         |
+| Frontend  | React 19, Vite 8, Tailwind CSS 4, Framer Motion, React Query 5, Zustand 5, DnD Kit, Excalidraw |
 | Backend   | Node.js, Express 5, Socket.IO 4, JWT, Passport.js                                          |
-| Databases | MongoDB (NoSQL) + MySQL 8 via Sequelize (SQL)                                            |
-| AI Engine | Python 3.11, FastAPI, LangChain 0.3, LangChain-OpenAI, Groq (LLaMA 3 8B) |
+| Databases | MongoDB (NoSQL) + SQLite via Sequelize (SQL)                                             |
+| AI Engine | Python 3.11, FastAPI, LangChain 0.3, LangChain-OpenAI, Groq (LLaMA 3 8B)                 |
 
 ## Features
 
-- ✅ **Authentication:** JWT + Google OAuth + MySQL Users
-- ✅ **Project Management:** Full CRUD, dynamic tracking
-- ✅ **Kanban Board:** Interactive Drag & Drop via `@dnd-kit`
+- ✅ **Authentication:** JWT + Google OAuth + SQLite Users
+- ✅ **Database Sync:** Custom `npm run db:export` & `import` for seamless team data sharing via GitHub
+- ✅ **GitHub Integration:** Import existing GitHub repositories directly into DevPilot AI as new projects
+- ✅ **Kanban Board:** Interactive Drag & Drop via `@dnd-kit` with dynamic resizing
 - ✅ **AI Task Breakdown:** Instantly breaks complex tasks into actionable subtasks via AI
-- ✅ **Team Collaboration Workspace:** Complete split-pane workspace for managing multiple teams
+- ✅ **Team Collaboration Workspace:** Complete split-pane workspace with integrated real-time Excalidraw whiteboards
 - ✅ **Team Access Control:** Send email invitations, requiring members to officially accept/reject via notifications
 - ✅ **Role Management:** Owner, Admin, and Member permissions
 - ✅ **Real-time Team Chat:** Dedicated Socket.IO-powered chat rooms per team
 - ✅ **Global Notification System:** Real-time bell notifications (invites, mentions, chat updates)
-- ✅ **AI Team Pulse:** Automatically generates a vibe-check/summary based on your team's description and members
-- ✅ **AI Chat Assistant:** Lightning-fast LLaMA 3 integration via Groq
+- ✅ **AI Chat Assistant:** Lightning-fast LLaMA 3 integration via Groq for coding help and technical guidance
 - ✅ **AI Document Generator:** Generates SRS, PRDs, READMEs natively
 - ✅ **AI Sprint Planner:** Auto-analyzes backlog into logical phases
-- ✅ **Dual Database Architecture:** High-performance MongoDB vs structured MySQL
+- ✅ **Dual Database Architecture:** High-performance MongoDB vs zero-config structured SQLite
 - ✅ Responsive AMOLED / Dark mode design

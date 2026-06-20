@@ -150,6 +150,9 @@ export default function TeamsPage() {
   );
 }
 
+import TeamWhiteboard from '../components/team/TeamWhiteboard';
+import { PenTool } from 'lucide-react';
+
 // ─── Team Workspace Subcomponent ─────────────────────────────────────────────
 function TeamWorkspace({ team }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -157,25 +160,42 @@ function TeamWorkspace({ team }) {
   const tabs = [
     { id: 'overview', label: 'Overview', icon: Activity },
     { id: 'chat', label: 'Team Chat', icon: MessageSquare },
+    { id: 'whiteboard', label: 'Whiteboard', icon: PenTool },
     { id: 'members', label: 'Members & Roles', icon: Users },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
+  const isWhiteboard = activeTab === 'whiteboard';
+
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1000, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 32 }}>
-        <div style={{ width: 64, height: 64, borderRadius: 16, background: 'linear-gradient(135deg, #6366f1, #a855f7)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2rem', fontWeight: 800 }}>
-          {team.name.charAt(0).toUpperCase()}
+    <div style={{
+      padding: isWhiteboard ? '0' : '32px 40px',
+      maxWidth: isWhiteboard ? '100%' : 1000,
+      margin: '0 auto',
+      width: '100%',
+      boxSizing: 'border-box',
+    }}>
+      {/* Header — hidden on whiteboard */}
+      {!isWhiteboard && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 32 }}>
+          <div style={{ width: 64, height: 64, borderRadius: 16, background: 'linear-gradient(135deg, #6366f1, #a855f7)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2rem', fontWeight: 800 }}>
+            {team.name.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{team.name}</h1>
+            <p style={{ color: 'var(--text-muted)', margin: '4px 0 0 0', fontSize: '1rem' }}>Team Workspace</p>
+          </div>
         </div>
-        <div>
-          <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>{team.name}</h1>
-          <p style={{ color: 'var(--text-muted)', margin: '4px 0 0 0', fontSize: '1rem' }}>Team Workspace</p>
-        </div>
-      </div>
+      )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 24, borderBottom: '1px solid var(--border-color)', marginBottom: 32 }}>
+      <div style={{
+        display: 'flex', gap: 24,
+        borderBottom: '1px solid var(--border-color)',
+        marginBottom: isWhiteboard ? 0 : 32,
+        padding: isWhiteboard ? '0 20px' : '0',
+        background: isWhiteboard ? 'var(--bg-card)' : 'transparent',
+      }}>
         {tabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -185,26 +205,28 @@ function TeamWorkspace({ team }) {
               onClick={() => setActiveTab(tab.id)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                padding: '0 0 12px 0',
+                padding: '14px 4px',
                 background: 'none', border: 'none',
                 color: isActive ? '#6366f1' : 'var(--text-secondary)',
                 fontWeight: isActive ? 700 : 500,
                 borderBottom: `2px solid ${isActive ? '#6366f1' : 'transparent'}`,
                 cursor: 'pointer',
                 transition: 'all 0.2s',
-                marginBottom: -1 // overlap border
+                marginBottom: -1,
+                fontSize: '0.88rem',
               }}
             >
-              <Icon size={18} /> {tab.label}
+              <Icon size={16} /> {tab.label}
             </button>
           )
         })}
       </div>
 
       {/* Content */}
-      <div style={{ animation: 'fadeIn 0.3s ease', flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ animation: 'fadeIn 0.3s ease' }}>
         {activeTab === 'overview' && <TabOverview team={team} />}
         {activeTab === 'chat' && <TabChat team={team} />}
+        {activeTab === 'whiteboard' && <TeamWhiteboard team={team} />}
         {activeTab === 'members' && <TabMembers team={team} />}
         {activeTab === 'settings' && <TabSettings team={team} />}
       </div>
@@ -337,7 +359,7 @@ function TabOverview({ team }) {
         role: 'user', 
         content: `Give a 2 sentence fun and encouraging "Team Pulse" for a team named "${team.name}" which has ${data?.members?.length || 0} members. Description: ${team.description || 'None'}.`
       }]);
-      setAiPulse(res.data.reply);
+      setAiPulse(res.data.content || res.data.reply);
     } catch(err) {
       toast.error('Failed to generate AI pulse');
     } finally {

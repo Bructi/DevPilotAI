@@ -25,6 +25,7 @@ import SprintPlannerPage from './pages/projects/SprintPlannerPage';
 import { TeamPage, AnalyticsPage, AIAssistantPage, DocumentsPage } from './pages/projects/ProjectPages';
 
 import TeamsPage from './pages/TeamsPage';
+import WhiteboardFullscreenPage from './pages/WhiteboardFullscreenPage';
 import NotificationsPage from './pages/NotificationsPage';
 import SettingsPage from './pages/SettingsPage';
 import ProfilePage from './pages/ProfilePage';
@@ -134,6 +135,8 @@ export default function App() {
             <Route path="settings" element={<SettingsPage />} />
             <Route path="profile" element={<ProfilePage />} />
           </Route>
+
+          <Route path="/teams/:teamId/whiteboard/fullscreen" element={<ProtectedRoute><WhiteboardFullscreenPage /></ProtectedRoute>} />
 
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

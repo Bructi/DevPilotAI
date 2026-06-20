@@ -8,7 +8,9 @@ router.use(authenticate);
 
 router.get('/', projectController.getProjects);
 router.post('/', projectController.createProject);
+router.post('/import-github', projectController.importFromGitHub);
 router.get('/:id', projectController.getProject);
+
 router.put('/:id', projectController.updateProject);
 router.delete('/:id', projectController.deleteProject);
 router.get('/:id/stats', projectController.getProjectStats);

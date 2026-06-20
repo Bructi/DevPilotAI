@@ -1,9 +1,10 @@
 const Project = require('../models/mongo/Project.model');
 const Task = require('../models/mongo/Task.model');
 const { ActivityLog } = require('../models/mongo/index');
-const User = require('../models/mysql/User.model');
-const { UserRole, Role } = require('../models/mysql/index');
+const User = require('../models/sqlite/User.model');
+const { UserRole, Role } = require('../models/sqlite/index');
 const { sendEmail } = require('../utils/email.service');
+
 
 // ─── Get All Projects (for user) ─────────────────────────────────────────────
 exports.getProjects = async (req, res) => {
@@ -230,7 +231,7 @@ exports.getProjectMembers = async (req, res) => {
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const userIds = project.members.map(m => m.user_id);
-    const UserModel = require('../models/mysql/User.model');
+    const UserModel = require('../models/sqlite/User.model');
     const { Op } = require('sequelize');
 
     const users = await UserModel.findAll({
@@ -266,5 +267,136 @@ exports.getActivity = async (req, res) => {
     res.json({ logs });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch activity log' });
+  }
+};
+// ─── Import Project from GitHub ──────────────────────────────────────────────
+exports.importFromGitHub = async (req, res) => {
+  try {
+    const { full_name } = req.body;
+    if (!full_name) return res.status(400).json({ error: 'full_name is required (e.g. owner/repo)' });
+
+    const userId = req.user.userId;
+
+    // Get user's GitHub PAT
+    const user = await User.findByPk(userId, { attributes: ['github_pat', 'github_username'] });
+    if (!user?.github_pat) return res.status(400).json({ error: 'GitHub not connected. Please connect GitHub first in your profile.' });
+
+    const ghHeaders = {
+      Authorization: `Bearer ${user.github_pat}`,
+      'User-Agent': 'DevPilot-AI',
+      Accept: 'application/vnd.github+json',
+    };
+
+    // Fetch full repo info
+    const ghRes = await fetch(`https://api.github.com/repos/${full_name}`, { headers: ghHeaders });
+    if (!ghRes.ok) {
+      const err = await ghRes.json().catch(() => ({}));
+      return res.status(400).json({ error: err.message || 'Could not fetch repo from GitHub' });
+    }
+    const repo = await ghRes.json();
+
+    // Fetch languages breakdown
+    let languages = {};
+    try {
+      const langRes = await fetch(repo.languages_url, { headers: ghHeaders });
+      languages = langRes.ok ? await langRes.json() : {};
+    } catch (_) {}
+
+    // ── Smart field mapping ─────────────────────────────────────────────────
+    const LANG_CATEGORY = {
+      JavaScript: 'web', TypeScript: 'web', HTML: 'web', CSS: 'web', Vue: 'web', Svelte: 'web',
+      Python: 'api', Ruby: 'api', PHP: 'api', Go: 'api', Java: 'api', 'C#': 'api', Kotlin: 'api',
+      Swift: 'mobile', Dart: 'mobile', 'Objective-C': 'mobile',
+      Jupyter: 'ml_ai', R: 'ml_ai', Julia: 'ml_ai',
+      Shell: 'devops', Dockerfile: 'devops', HCL: 'devops', Makefile: 'devops',
+      SQL: 'data', Scala: 'data',
+    };
+
+    const primaryLang = repo.language || Object.keys(languages)[0] || null;
+    const category = LANG_CATEGORY[primaryLang] || 'other';
+
+    const techStack = [
+      primaryLang,
+      ...Object.keys(languages).filter(l => l !== primaryLang).slice(0, 4),
+      ...(repo.topics || []).slice(0, 5),
+    ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i); // dedupe
+
+    const tags = (repo.topics || []).slice(0, 8);
+
+    // Detect project status
+    const lastPush = new Date(repo.pushed_at);
+    const daysSincePush = (Date.now() - lastPush.getTime()) / (1000 * 60 * 60 * 24);
+    const status = repo.archived ? 'completed'
+      : daysSincePush > 180 ? 'paused'
+      : 'development';
+
+    // Detect icon from category
+    const CATEGORY_ICON = { web: '🌐', mobile: '📱', api: '⚡', ml_ai: '🤖', data: '🗄️', devops: '🚀', other: '📁' };
+    const icon = CATEGORY_ICON[category] || '📁';
+
+    // Check if already imported
+    const existing = await Project.findOne({ 'github_repo.full_name': full_name, is_deleted: false });
+    if (existing) {
+      return res.status(409).json({ error: `This repo is already imported as project "${existing.name}"`, project_id: existing._id });
+    }
+
+    // Fetch README for description
+    let readmeContent = '';
+    try {
+      const readmeRes = await fetch(`https://api.github.com/repos/${full_name}/readme`, {
+        headers: { ...ghHeaders, Accept: 'application/vnd.github.v3.raw' }
+      });
+      if (readmeRes.ok) {
+        readmeContent = await readmeRes.text();
+      }
+    } catch (_) {}
+
+    // Create project
+    const project = await Project.create({
+      name: repo.name,
+      short_description: repo.description || `Imported from GitHub: ${full_name}`,
+      description: readmeContent || `${repo.description || ''}\n\nImported from GitHub repository: ${repo.html_url}\nLanguages: ${Object.keys(languages).join(', ') || primaryLang || 'N/A'}\nStars: ${repo.stargazers_count} · Forks: ${repo.forks_count} · Open Issues: ${repo.open_issues_count}`.trim(),
+      owner_id: userId,
+      category,
+      status,
+      priority: 'medium',
+      icon,
+      tech_stack: techStack,
+      tags,
+      members: [{ user_id: userId, role: 'admin' }],
+      github_repo: {
+        full_name: repo.full_name,
+        url: repo.html_url,
+        clone_url: repo.clone_url,
+        default_branch: repo.default_branch,
+        is_private: repo.private,
+        stars: repo.stargazers_count,
+        forks: repo.forks_count,
+        language: primaryLang,
+        topics: repo.topics || [],
+      },
+    });
+
+    await ActivityLog.create({
+      project_id: project._id,
+      user_id: userId,
+      action: `Imported project from GitHub: ${full_name}`,
+      entity_type: 'project',
+      entity_id: project._id.toString(),
+      entity_name: project.name,
+    });
+
+    // MySQL UserRole sync
+    const mysqlRole = await Role.findOne({ where: { name: 'admin' } });
+    if (mysqlRole) {
+      await UserRole.create({ user_id: userId, project_id: project._id.toString(), role_id: mysqlRole.id });
+    }
+
+    const io = req.app.get('io');
+    io?.emit('project:created', { project });
+
+    res.status(201).json({ message: 'Project imported from GitHub!', project });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to import project', details: err.message });
   }
 };

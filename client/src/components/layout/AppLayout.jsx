@@ -6,6 +6,7 @@ import { useAuthStore, useUIStore, useNotificationStore } from '../../store';
 import { connectSocket, getSocket } from '../../services/socket';
 import { useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { notificationAPI } from '../../services/api';
 
 export default function AppLayout() {
   const { user } = useAuthStore();
@@ -15,6 +16,15 @@ export default function AppLayout() {
 
   useEffect(() => {
     if (user?.id) {
+      // Fetch initial unread count
+      notificationAPI.getAll({ limit: 1, unread_only: true })
+        .then(res => {
+          if (res.data?.unread_count !== undefined) {
+            useNotificationStore.getState().setUnreadCount(res.data.unread_count);
+          }
+        })
+        .catch(console.error);
+
       connectSocket(user.id, user.name);
       const socket = getSocket();
       if (socket) {

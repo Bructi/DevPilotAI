@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
-const { AiConversation, Document, Sprint, ActivityLog, Task, Project } = require('../models/mongo/index');
-const UserModel = require('../models/mysql/User.model');
+const { AiConversation, Document, Sprint, ActivityLog } = require('../models/mongo/index');
+const Task = require('../models/mongo/Task.model');
+const Project = require('../models/mongo/Project.model');
+const UserModel = require('../models/sqlite/User.model');
+
 
 const AI_ENGINE_URL = process.env.AI_ENGINE_URL || 'http://localhost:8000';
 
@@ -413,4 +416,83 @@ router.post('/tasks/breakdown', authenticate, async (req, res) => {
   }
 });
 
+// ─── AI Kanban Board Generator ────────────────────────────────────────────────
+router.post('/kanban/generate', authenticate, async (req, res) => {
+  try {
+    const { prompt, projectId } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'prompt is required' });
+
+    // Get project name for context if available
+    let projectName = null;
+    if (projectId) {
+      const project = await Project.findById(projectId).catch(() => null);
+      projectName = project?.name || null;
+    }
+
+    const data = await proxyToAI('/kanban/generate', {
+      prompt,
+      project_name: projectName,
+      use_ai: true,
+    });
+
+    // If projectId given, bulk-create all the tasks in MongoDB
+    if (projectId && data.board?.columns) {
+      // Valid enums from Task.model.js
+      const VALID_STATUSES = ['backlog', 'todo', 'in_progress', 'review', 'testing', 'completed'];
+      const VALID_TYPES = ['task', 'story', 'bug', 'epic', 'subtask'];
+      const VALID_PRIORITIES = ['low', 'medium', 'high', 'critical'];
+      // Map AI-generated types to schema-valid types
+      const TYPE_MAP = { feature: 'story', research: 'task', chore: 'task', enhancement: 'story' };
+
+      const createdTasks = [];
+      const errors = [];
+
+      for (const col of data.board.columns) {
+        const status = VALID_STATUSES.includes(col.id) ? col.id : 'backlog';
+        for (const task of (col.tasks || [])) {
+          try {
+            const rawType = (task.type || 'task').toLowerCase();
+            const type = VALID_TYPES.includes(rawType) ? rawType : (TYPE_MAP[rawType] || 'task');
+            const priority = VALID_PRIORITIES.includes(task.priority) ? task.priority : 'medium';
+
+            const created = await Task.create({
+              project_id: projectId,
+              reporter_id: req.user.userId,   // ← required field
+              title: task.title,
+              description: task.description || '',
+              priority,
+              story_points: task.story_points || null,
+              type,
+              tags: (task.tags || []).map(t => String(t).trim()).filter(Boolean),
+              status,
+            });
+            createdTasks.push(created);
+          } catch (taskErr) {
+            errors.push({ task: task.title, error: taskErr.message });
+            console.error(`Failed to create task "${task.title}":`, taskErr.message);
+          }
+        }
+      }
+
+      await ActivityLog.create({
+        project_id: projectId,
+        user_id: req.user.userId,
+        action: `Generated AI Kanban board: "${data.board.board_title}" (${createdTasks.length} tasks)`,
+        entity_type: 'ai',
+        entity_id: projectId,
+      }).catch(() => {});
+
+      return res.json({ board: data.board, prompt, tasks_created: createdTasks.length, errors });
+    }
+
+    // Return preview only (no projectId)
+    res.json({ board: data.board, prompt });
+  } catch (err) {
+    console.error('AI Kanban generation error:', err.message);
+    res.status(500).json({ error: err.message || 'Kanban generation failed' });
+  }
+});
+
+
 module.exports = router;
+

@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/mysql/User.model');
+const User = require('../models/sqlite/User.model');
 
 // ─── Authenticate JWT ─────────────────────────────────────────────────────────
 exports.authenticate = async (req, res, next) => {

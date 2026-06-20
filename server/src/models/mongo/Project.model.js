@@ -45,9 +45,20 @@ const projectSchema = new mongoose.Schema({
   tech_stack: [{ type: String }],
   repository_url: { type: String, default: null },
   github_repo: {
-    owner: String,
-    repo: String,
-    connected: { type: Boolean, default: false },
+    full_name: { type: String, default: null },   // e.g. "owner/repo"
+    url: { type: String, default: null },
+    clone_url: { type: String, default: null },
+    default_branch: { type: String, default: null },
+    is_private: { type: Boolean, default: false },
+    is_fork: { type: Boolean, default: false },
+    stars: { type: Number, default: 0 },
+    forks: { type: Number, default: 0 },
+    language: { type: String, default: null },
+    topics: [{ type: String }],
+    connected: { type: Boolean, default: true },
+    // legacy fields kept for backward compat
+    owner: { type: String, default: null },
+    repo: { type: String, default: null },
   },
   deployment_url: { type: String, default: null },
 

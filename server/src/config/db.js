@@ -16,34 +16,24 @@ mongoose.connection.on('disconnected', () => {
   console.warn('⚠️  MongoDB disconnected');
 });
 
-// ─── MySQL / Sequelize Connection ─────────────────────────────────────────────
-const sequelize = new Sequelize(
-  process.env.MYSQL_DB || 'devpilot_ai',
-  process.env.MYSQL_USER || 'root',
-  process.env.MYSQL_PASSWORD || '',
-  {
-    host: process.env.MYSQL_HOST || 'localhost',
-    port: process.env.MYSQL_PORT || 3306,
-    dialect: 'mysql',
-    logging: false,
-    pool: {
-      max: 10,
-      min: 0,
-      acquire: 30000,
-      idle: 10000,
-    },
-  }
-);
+// ─── SQL / Sequelize Connection ────────────────────────────────────────────────
+const dialect = process.env.DB_DIALECT || 'sqlite';
 
-const connectMySQL = async () => {
+const sequelize = new Sequelize({
+  dialect: dialect,
+  storage: process.env.SQLITE_STORAGE || './devpilot_ai.sqlite',
+  logging: false,
+});
+
+const connectSQL = async () => {
   try {
     await sequelize.authenticate();
-    console.log('✅ MySQL connected successfully');
+    console.log(`✅ SQLite connected successfully`);
     await sequelize.sync({ alter: true });
-    console.log('✅ MySQL models synchronized');
+    console.log(`✅ SQLite models synchronized`);
 
     // Seed roles
-    const { Role } = require('../models/mysql/index');
+    const { Role } = require('../models/sqlite/index');
     const defaultRoles = [
       { name: 'admin', description: 'Full access to all project resources' },
       { name: 'project_manager', description: 'Can manage sprints, tasks, and team' },
@@ -56,9 +46,9 @@ const connectMySQL = async () => {
     }
     console.log('✅ Roles seeded');
   } catch (error) {
-    console.warn('⚠️  MySQL not available (start XAMPP to enable):', error.message.split('\n')[0]);
-    console.warn('    The app will run with MongoDB only. Auth requires MySQL.');
+    console.warn(`⚠️  SQLite not available:`, error);
+    console.warn(`    The app will run with MongoDB only. Auth requires SQLite.`);
   }
 };
 
-module.exports = { connectMongoDB, connectMySQL, sequelize };
+module.exports = { connectMongoDB, connectSQL, sequelize };

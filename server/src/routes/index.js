@@ -87,8 +87,8 @@ sprintRouter.post('/:projectId/:sprintId/estimate', async (req, res) => {
 // Team Routes
 const teamRouter = express.Router();
 teamRouter.use(authenticate);
-const { Team, TeamMember } = require('../models/mysql/index');
-const User = require('../models/mysql/User.model');
+const { Team, TeamMember } = require('../models/sqlite/index');
+const User = require('../models/sqlite/User.model');
 
 teamRouter.get('/', async (req, res) => {
   try {
@@ -287,6 +287,34 @@ teamRouter.post('/:teamId/chat', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Team Whiteboard Routes
+teamRouter.get('/:teamId/whiteboard', async (req, res) => {
+  try {
+    const { TeamWhiteboard } = require('../models/mongo/index');
+    let whiteboard = await TeamWhiteboard.findOne({ team_id: req.params.teamId });
+    if (!whiteboard) {
+      whiteboard = await TeamWhiteboard.create({ team_id: req.params.teamId, elements: [], appState: {} });
+    }
+    res.json({ whiteboard });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+teamRouter.put('/:teamId/whiteboard', async (req, res) => {
+  try {
+    const { TeamWhiteboard } = require('../models/mongo/index');
+    const { elements, appState } = req.body;
+    let whiteboard = await TeamWhiteboard.findOne({ team_id: req.params.teamId });
+    if (whiteboard) {
+      whiteboard.elements = elements || whiteboard.elements;
+      whiteboard.appState = appState || whiteboard.appState;
+      await whiteboard.save();
+    } else {
+      whiteboard = await TeamWhiteboard.create({ team_id: req.params.teamId, elements: elements || [], appState: appState || {} });
+    }
+    res.json({ whiteboard });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Chat Routes
 const chatRouter = express.Router({ mergeParams: true });
 chatRouter.use(authenticate);
@@ -315,28 +343,41 @@ notificationRouter.use(authenticate);
 const { Notification } = require('../models/mongo/index');
 
 notificationRouter.get('/', async (req, res) => {
-  const { page = 1, limit = 30, unread_only } = req.query;
-  const filter = { user_id: req.user.userId };
-  if (unread_only === 'true') filter.is_read = false;
-  const [notifications, unread_count] = await Promise.all([
-    Notification.find(filter).sort('-createdAt').skip((page-1)*limit).limit(Number(limit)),
-    Notification.countDocuments({ user_id: req.user.userId, is_read: false }),
-  ]);
-  res.json({ notifications, unread_count });
+  try {
+    const { page = 1, limit = 30, unread_only } = req.query;
+    const filter = { user_id: req.user.userId };
+    if (unread_only === 'true') filter.is_read = false;
+    const [notifications, unread_count] = await Promise.all([
+      Notification.find(filter).sort('-createdAt').skip((page-1)*limit).limit(Number(limit)),
+      Notification.countDocuments({ user_id: req.user.userId, is_read: false }),
+    ]);
+    res.json({ notifications, unread_count });
+  } catch (err) {
+    console.error('Error fetching notifications:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 notificationRouter.patch('/read-all', async (req, res) => {
-  await Notification.updateMany({ user_id: req.user.userId, is_read: false }, { is_read: true });
-  res.json({ message: 'All notifications marked as read' });
+  try {
+    await Notification.updateMany({ user_id: req.user.userId, is_read: false }, { is_read: true });
+    res.json({ message: 'All notifications marked as read' });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 notificationRouter.patch('/:id/read', async (req, res) => {
-  await Notification.findByIdAndUpdate(req.params.id, { is_read: true });
-  res.json({ message: 'Notification marked as read' });
+  try {
+    await Notification.findByIdAndUpdate(req.params.id, { is_read: true });
+    res.json({ message: 'Notification marked as read' });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // User Routes
 const userRouter = express.Router();
 userRouter.use(authenticate);
-const UserModel = require('../models/mysql/User.model');
+const UserModel = require('../models/sqlite/User.model');
 
 userRouter.get('/search', async (req, res) => {
   const { q } = req.query;
@@ -404,11 +445,33 @@ userRouter.get('/integrations/github/repos', async (req, res) => {
   try {
     const user = await UserModel.findByPk(req.user.userId, { attributes: ['github_pat'] });
     if (!user?.github_pat) return res.status(400).json({ error: 'GitHub not connected' });
-    const ghRes = await fetch('https://api.github.com/user/repos?sort=updated&per_page=10', {
+    const ghRes = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100&type=all', {
       headers: { Authorization: `Bearer ${user.github_pat}`, 'User-Agent': 'DevPilot-AI', Accept: 'application/vnd.github+json' },
     });
     const repos = await ghRes.json();
-    res.json({ repos: repos.map(r => ({ id: r.id, name: r.name, full_name: r.full_name, description: r.description, language: r.language, stars: r.stargazers_count, open_issues: r.open_issues_count, url: r.html_url, updated_at: r.updated_at })) });
+    if (!Array.isArray(repos)) return res.status(400).json({ error: 'GitHub API error', detail: repos });
+    res.json({
+      repos: repos.map(r => ({
+        id: r.id,
+        name: r.name,
+        full_name: r.full_name,
+        description: r.description,
+        language: r.language,
+        languages_url: r.languages_url,
+        stars: r.stargazers_count,
+        forks: r.forks_count,
+        open_issues: r.open_issues_count,
+        is_private: r.private,
+        is_fork: r.fork,
+        topics: r.topics || [],
+        size: r.size,
+        default_branch: r.default_branch,
+        url: r.html_url,
+        clone_url: r.clone_url,
+        updated_at: r.updated_at,
+        created_at: r.created_at,
+      }))
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
